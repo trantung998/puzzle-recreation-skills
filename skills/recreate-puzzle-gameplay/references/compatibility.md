@@ -6,11 +6,19 @@ The skill set is five directories, each `<skill-id>/SKILL.md` with only `name` a
 `recreate-puzzle-gameplay`, `unity-apk-decompile`, `puzzle-evidence-extraction`,
 `puzzle-gameplay-build`, `puzzle-gameplay-verification`.
 
-Canonical install: `~/.agents/skills/<skill-id>/` (Windows: `%USERPROFILE%\.agents\skills\`).
+Canonical install: `~/.agents/skills/<skill-id>/` (Windows: `%USERPROFILE%\.agents\skills\`;
+macOS: `/Users/<you>/.agents/skills/`, a hidden folder — `Cmd+Shift+.` shows it in Finder).
 
 Checked on Windows on 2026-11-18 with Codex CLI 0.167.0 and Claude Code 2.1.325, by
 listing the skills each harness could see and by reading the harnesses' current
 documentation. Items marked "not verified on this machine" come from documentation only.
+
+Checked on macOS (Darwin 25.6, Apple Silicon, `/bin/bash` 3.2, Python 3.9 and 3.14) on
+2026-11-18: all unit tests and `test_tools_env.sh`; `ensure_tools.py` installing every pinned
+tool (`macos-arm64` archives, SHA-256 matched) and building `ghidra-natives`; `tools-env.sh`
+with the real tools; `ghidra_decompile.sh` on an arm64 ELF (`_index.tsv` OK);
+`il2cppdumper`, `ilspycmd --version` and AssetRipper headless start. Harness skill listing,
+a full APK run and the Unity batchmode routes were not run on macOS.
 
 ## Where each harness finds skills
 
@@ -91,11 +99,16 @@ each skill states its fallback.
   directory's absolute path, so the working directory does not matter. On Windows the
   command may be `python` or `py -3`. Use whichever runs Python 3 (`python --version`).
   Quote paths that contain spaces or `+` (`"D:/games/Tile+Twister_312_APKPure.xapk"`).
+- On macOS, `python3` may be the Xcode Command Line Tools interpreter (3.9) or Homebrew's;
+  both work. Every script supports Python 3.9+.
 - Bash scripts (`unity-apk-decompile`) run under Git Bash on Windows, for example
-  `"C:/Program Files/Git/bin/bash.exe" -c 'source "<skill dir>/scripts/tools-env.sh" && ...'`.
-- Decompile phase: Windows + Git Bash only on this fork. `tools-env.sh` calls `cygpath` and
-  points at `.exe` tools, so on macOS or Linux the orchestrator stops at `decompile` with that
-  message (run layout §4, §6). The other scripts are cross-platform.
+  `"C:/Program Files/Git/bin/bash.exe" -c 'source "<skill dir>/scripts/tools-env.sh" && ...'`,
+  and under the stock `bash` on macOS (3.2 is enough) and Linux:
+  `bash -c 'source "<skill dir>/scripts/tools-env.sh" && ...'`. Do not `source` it from zsh
+  (the macOS default shell): it relies on `BASH_SOURCE`.
+- Decompile phase: Windows, macOS (Intel and Apple Silicon) and Linux. `tools-env.sh` picks
+  the platform layout itself (`unity-apk-decompile/INSTALLATION.md`, "Platform");
+  `ensure_tools.py` downloads the matching pinned archive (`macos-arm64` on Apple Silicon).
 - No script edits the system PATH or needs admin rights.
 
 ## Sub-agents and background waits

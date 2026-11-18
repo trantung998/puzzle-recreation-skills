@@ -7,7 +7,8 @@ This is the global copy of the skill, installed at `~/.agents/skills/unity-apk-d
 - Forked from the ParkingLoop project copy `H:\UGame\ParkingLoop\.agents\skills\unity-apk-decompile`.
 - Upstream: https://github.com/trantung998/unity-apk-decompile
 - Upstream revision: `025bff05a56ae7cc842e92a2518c4abb5ad1ac48`
-- Changes against the project copy: tool root resolution in `scripts/tools-env.sh`,
+- Changes against the project copy: tool root resolution and platform layout in `scripts/tools-env.sh`,
+  `-I` instead of `-P` for `unity_yaml.py` (works on Python 3.9),
   the three `scripts/bin/` wrappers (`python3`, `il2cppdumper`, `ilspycmd`),
   `SKILL.md` line 24 (source path), this file, and `tests/test_tools_env.sh`.
 
@@ -31,10 +32,21 @@ Expected subfolders: `decompile-python`, `jdk-25`, `ghidra-12.2`,
 
 ## Platform
 
-Decompile phase: Windows + Git Bash only on this fork. `scripts/tools-env.sh` uses
-`cygpath` and the Windows tool layout (`.exe`, `decompile-python/Scripts`), so it does not
-work on macOS or Linux; there the orchestrator stops at the decompile phase with this
-message.
+Decompile phase runs on Windows (Git Bash), macOS (Intel and Apple Silicon, stock
+`/bin/bash` 3.2) and Linux. `scripts/tools-env.sh` detects the platform with `uname -s` and
+picks the layout:
+
+| | Windows (Git Bash) | macOS | Linux |
+|---|---|---|---|
+| venv interpreter | `decompile-python/Scripts/python.exe` | `decompile-python/bin/python` | `decompile-python/bin/python` |
+| `JAVA_HOME` | `jdk-25` (via `cygpath -m`) | `jdk-25/Contents/Home` | `jdk-25` |
+| `ASSETRIPPER` | `AssetRipper.GUI.Free.exe` | `AssetRipper.GUI.Free` | `AssetRipper.GUI.Free` |
+| user-scope .NET | `<root>/dotnet/dotnet.exe` | `<root>/dotnet/dotnet` | `<root>/dotnet/dotnet` |
+
+It also exports `UNITY_DECOMPILE_PLATFORM` (`windows`/`macos`/`linux`), puts
+`<root>/dotnet` first on PATH and sets `DOTNET_ROOT` when that folder exists, and on
+macOS/Linux restores the exec bit on `scripts/bin/*` (bash ignores PATH entries without it,
+and copies made on Windows or by a skill installer can lose it).
 
 ## Drift
 
@@ -52,5 +64,6 @@ the resolved tool directory (pinned versions, no admin, no PATH edits).
 ## Test
 
 ```bash
-"C:/Program Files/Git/bin/bash.exe" tests/test_tools_env.sh   # expects PASS 4/4
+"C:/Program Files/Git/bin/bash.exe" tests/test_tools_env.sh   # Windows; expects PASS 8/8
+bash tests/test_tools_env.sh                                   # macOS / Linux; expects PASS 8/8
 ```

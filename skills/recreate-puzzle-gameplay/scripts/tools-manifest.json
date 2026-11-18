@@ -27,6 +27,10 @@
       "version": "UnityPy 1.25.4, brotli 1.2.1 (venv)",
       "folder": "level-decoders-venv",
       "required": false,
+      "min_python": [
+        3,
+        10
+      ],
       "detect": {
         "windows": [
           "Scripts/python.exe",
@@ -194,6 +198,28 @@
         "archive": "zip"
       },
       "post": "il2cppdumper-config"
+    },
+    {
+      "id": "ghidra-natives",
+      "version": "Ghidra 12.2 decompiler natives, built locally with Gradle 9.8.0 (release zip has no macOS binaries)",
+      "folder": "ghidra-12.2",
+      "required": true,
+      "only": [
+        "macos"
+      ],
+      "post": "ghidra-natives",
+      "jdk_folder": "jdk-25",
+      "detect": {
+        "macos": [
+          "Ghidra/Features/Decompiler/build/os/mac_*/decompile"
+        ]
+      },
+      "gradle": {
+        "url": "https://services.gradle.org/distributions/gradle-9.8.0-bin.zip",
+        "sha256": "bafd5ce9cfaea0fbccfdc8439a1ac42fbd4cd9c89dc9a988228d8a2639a58e6c",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://services.gradle.org/distributions/gradle-9.8.0-bin.zip.sha256"
+      }
     },
     {
       "id": "assetripper",

@@ -339,6 +339,51 @@ class EnsureToolsTests(unittest.TestCase):
                                                          {"detect": ["lib/python*/site-packages/Other/x.py"]},
                                                          "windows"))
 
+    def test_venv_min_python_too_old_fails_without_running_anything(self):
+        calls = []
+
+        def runner(argv):
+            calls.append(argv)
+            return 0, ""
+        e = entry("dec", "dec-1", None, detect={"windows": ["Scripts/python.exe"]}, post="venv",
+                  pip=["A==1.0"], required=False, min_python=[99, 0])
+        del e["windows"], e["linux"], e["macos"]
+        res = self.ensure([e], FakeFetch({}), runner=runner)
+        t = res["tools"]["dec"]
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("Python >= 99.0", t["detail"])
+        self.assertIn("re-run ensure_tools.py", t["detail"])
+        self.assertEqual(calls, [])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "dec-1")))
+
+    def test_venv_min_python_satisfied_installs(self):
+        def runner(argv):
+            if argv[1:3] == ["-m", "venv"]:
+                py = os.path.join(argv[3], "Scripts", "python.exe")
+                os.makedirs(os.path.dirname(py))
+                open(py, "w").close()
+            return 0, ""
+        e = entry("dec", "dec-1", None, detect={"windows": ["Scripts/python.exe"]}, post="venv",
+                  pip=["A==1.0"], required=False, min_python=[3, 0])
+        del e["windows"], e["linux"], e["macos"]
+        res = self.ensure([e], FakeFetch({}), runner=runner)
+        self.assertEqual(res["tools"]["dec"]["status"], "installed")
+
+    def test_manifest_level_decoders_needs_python_310(self):
+        m = ensure_tools.load_manifest(ensure_tools.MANIFEST_PATH)
+        dec = next(t for t in m["tools"] if t["id"] == "level-decoders")
+        self.assertEqual(dec.get("min_python"), [3, 10])
+
+    def test_manifest_rejects_bad_min_python(self):
+        for bad in ("3.10", [3], [3, "10"]):
+            path = os.path.join(self.root, "m.json")
+            os.makedirs(self.root, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump({"schema": 1, "tools": [{"id": "v", "folder": "v", "post": "venv",
+                                                    "pip": ["A==1"], "min_python": bad}]}, f)
+            with self.assertRaises(ValueError, msg=bad):
+                ensure_tools.load_manifest(path)
+
     def test_generic_venv_post_installs_exact_pins(self):
         calls = []
 
@@ -529,7 +574,8 @@ class EnsureToolsTests(unittest.TestCase):
         self.assertEqual({k: v["folder"] for k, v in by_id.items() if v.get("folder")}, {
             "python-venv": "decompile-python", "jdk": "jdk-25", "ghidra": "ghidra-12.2",
             "il2cppdumper": "Il2CppDumper-6.7.46", "assetripper": "AssetRipper_2.0.0",
-            "ilspycmd": "ilspycmd-9.1.0", "level-decoders": "level-decoders-venv"})
+            "ilspycmd": "ilspycmd-9.1.0", "level-decoders": "level-decoders-venv",
+            "ghidra-natives": "ghidra-12.2"})
         self.assertIn("dotnet", by_id)
         self.assertEqual(by_id["git-bash"]["only"], ["windows"])
         self.assertEqual(by_id["python-venv"]["pip"], ["PyYAML==6.0.3"])
@@ -563,6 +609,116 @@ class EnsureToolsTests(unittest.TestCase):
                     self.assertTrue(p["url"].startswith("https://"), t["id"])
                     self.assertTrue(p["sha256"] is None or len(p["sha256"]) == 64, t["id"])
                     self.assertIn(p["archive"], ("zip", "tar.gz", "tar.xz", "nupkg"))
+
+
+GRADLE_URL = "https://services.gradle.org/distributions/gradle-9.8.0-bin.zip"
+GRADLE_SHA = "bafd5ce9cfaea0fbccfdc8439a1ac42fbd4cd9c89dc9a988228d8a2639a58e6c"
+NATIVE = "Ghidra/Features/Decompiler/build/os/mac_arm_64/decompile"
+
+
+def natives_entry():
+    return {"id": "ghidra-natives", "version": "1", "folder": "ghidra-12.2", "required": True,
+            "only": ["macos"], "post": "ghidra-natives", "jdk_folder": "jdk-25",
+            "gradle": {"url": GRADLE_URL, "sha256": GRADLE_SHA, "sha256_source": "publisher-checksum-file"},
+            "detect": {"macos": ["Ghidra/Features/Decompiler/build/os/mac_*/decompile"]}}
+
+
+class GhidraNativesTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self._tmp.name, "tools")
+        self.ghidra = os.path.join(self.root, "ghidra-12.2")
+        self.props = os.path.join(self.ghidra, "support", "gradle", "gradle-wrapper.properties")
+        os.makedirs(os.path.dirname(self.props))
+        with open(os.path.join(self.ghidra, "support", "gradle", "gradlew"), "w") as f:
+            f.write("#!/bin/sh\n")
+        with open(self.props, "w") as f:
+            f.write("distributionUrl=https\\://services.gradle.org/distributions/gradle-9.8.0-bin.zip\n")
+        java = os.path.join(self.root, "jdk-25", "Contents", "Home", "bin", "java")
+        os.makedirs(os.path.dirname(java))
+        open(java, "w").close()
+        self.calls = []
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def runner(self, build_ok=True, xcode_ok=True):
+        def run(argv):
+            self.calls.append(argv)
+            if argv[0] == "xcode-select":
+                return (0 if xcode_ok else 2), "/Library/Developer/CommandLineTools"
+            if "buildNatives" in argv and build_ok:
+                p = os.path.join(self.ghidra, *NATIVE.split("/"))
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                open(p, "w").close()
+            return (0 if build_ok else 1), "BUILD FAILED" if not build_ok else "BUILD SUCCESSFUL"
+        return run
+
+    def ensure(self, runner, check=False, platform="macos"):
+        return ensure_tools.ensure(self.root, {"schema": 1, "tools": [natives_entry()]}, check=check,
+                                   fetch=FakeFetch({}), platform=platform, runner=runner)["tools"]
+
+    def test_builds_natives_with_pinned_gradle_inside_tool_root(self):
+        t = self.ensure(self.runner())["ghidra-natives"]
+        self.assertEqual(t["status"], "installed", t)
+        build = next(c for c in self.calls if "buildNatives" in c)
+        self.assertIn("JAVA_HOME=" + os.path.join(self.root, "jdk-25", "Contents", "Home"), build)
+        self.assertIn("GRADLE_USER_HOME=" + os.path.join(self.root, "gradle-home"), build)
+        with open(self.props) as f:
+            self.assertIn("distributionSha256Sum=" + GRADLE_SHA, f.read())
+
+    def test_present_when_natives_exist(self):
+        self.runner()(["x", "buildNatives"])
+        self.calls.clear()
+        t = self.ensure(self.runner())["ghidra-natives"]
+        self.assertEqual(t["status"], "present")
+        self.assertEqual(self.calls, [])
+
+    def test_check_mode_never_builds(self):
+        t = self.ensure(self.runner(), check=True)["ghidra-natives"]
+        self.assertEqual(t["status"], "failed")
+        self.assertEqual(self.calls, [])
+
+    def test_missing_command_line_tools_is_a_manual_stop(self):
+        t = self.ensure(self.runner(xcode_ok=False))["ghidra-natives"]
+        self.assertEqual(t["status"], "manual")
+        self.assertTrue(t["detail"].startswith("stop: hand to the user"))
+        self.assertIn("xcode-select --install", t["detail"])
+        self.assertFalse(any("buildNatives" in c for c in self.calls))
+
+    def test_build_failure_is_reported(self):
+        t = self.ensure(self.runner(build_ok=False))["ghidra-natives"]
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("BUILD FAILED", t["detail"])
+
+    def test_ghidra_not_installed_fails_without_building(self):
+        import shutil
+        shutil.rmtree(self.ghidra)
+        t = self.ensure(self.runner())["ghidra-natives"]
+        self.assertEqual(t["status"], "failed")
+        self.assertFalse(any("buildNatives" in c for c in self.calls))
+        self.assertFalse(os.path.exists(self.ghidra))
+
+    def test_gradle_url_mismatch_refuses_to_build(self):
+        with open(self.props, "w") as f:
+            f.write("distributionUrl=https\\://services.gradle.org/distributions/gradle-9.9.0-bin.zip\n")
+        t = self.ensure(self.runner())["ghidra-natives"]
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("gradle-9.9.0", t["detail"])
+        self.assertFalse(any("buildNatives" in c for c in self.calls))
+
+    def test_skipped_on_other_platforms(self):
+        for plat in ("windows", "linux"):
+            self.assertNotIn("ghidra-natives", self.ensure(self.runner(), platform=plat))
+
+    def test_shipped_manifest_has_macos_natives_entry_after_jdk_and_ghidra(self):
+        m = ensure_tools.load_manifest(ensure_tools.MANIFEST_PATH)
+        ids = [t["id"] for t in m["tools"]]
+        self.assertLess(ids.index("jdk"), ids.index("ghidra-natives"))
+        self.assertLess(ids.index("ghidra"), ids.index("ghidra-natives"))
+        e = m["tools"][ids.index("ghidra-natives")]
+        self.assertEqual(e["only"], ["macos"])
+        self.assertEqual(e["gradle"]["sha256"], GRADLE_SHA)
 
 
 if __name__ == "__main__":

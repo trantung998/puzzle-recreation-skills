@@ -71,6 +71,10 @@ def load_manifest(path):
                 source = src.get("sha256_source")
                 if (sha is None) != (source is None) or (source is not None and source not in SHA_SOURCES):
                     raise ValueError("manifest: sha256 needs a valid sha256_source for %s/%s" % (tool["id"], key))
+        if "min_python" in tool:
+            mp = tool["min_python"]
+            if not (isinstance(mp, list) and len(mp) == 2 and all(isinstance(x, int) for x in mp)):
+                raise ValueError("manifest: %s min_python must be [major, minor]" % tool["id"])
         if tool.get("post") in VENV_POSTS:
             pins = tool.get("pip")
             if not pins or not all(isinstance(p, str) and re.match(r"^[A-Za-z0-9_.\-]+==[A-Za-z0-9_.!+\-]+$", p)
@@ -285,6 +289,13 @@ def detect_command_tool(tool, platform, root):
 def install_venv(tool, final, platform, runner):
     if os.path.exists(final):
         return result("failed", tool, final, "folder exists but is incomplete; delete it and re-run: " + final)
+    need = tool.get("min_python")
+    if need and tuple(sys.version_info[:2]) < tuple(need):
+        return result("failed", tool, final, (
+            "needs Python >= %d.%d to create this venv (this is %d.%d at %s); re-run ensure_tools.py "
+            "with a newer python3 (macOS: Homebrew /opt/homebrew/bin/python3 or the python.org "
+            "installer; the Xcode /usr/bin/python3 is 3.9)") % (
+            need[0], need[1], sys.version_info[0], sys.version_info[1], sys.executable))
     try:
         rc, out = runner([sys.executable, "-m", "venv", final])
         if rc != 0:
@@ -313,6 +324,53 @@ def post_il2cppdumper_config(folder):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
+
+
+def build_ghidra_natives(tool, final, root, platform, runner):
+    """Ghidra release zips ship decompiler binaries for linux_x86_64 and win_x86_64 only.
+
+    On macOS, build them in place with Ghidra's own Gradle wrapper (support/gradle), using the
+    pinned JDK from the tool root, a sha256-pinned Gradle distribution and a GRADLE_USER_HOME
+    inside the tool root. Needs the Xcode Command Line Tools (clang) and network access.
+    """
+    gradle_dir = os.path.join(final, "support", "gradle")
+    gradlew = os.path.join(gradle_dir, "gradlew")
+    props = os.path.join(gradle_dir, "gradle-wrapper.properties")
+    if not (os.path.isfile(gradlew) and os.path.isfile(props)):
+        return result("failed", tool, final, "Ghidra is not installed at %s (support/gradle missing); "
+                      "install the ghidra entry first" % final)
+    jdk = os.path.join(root, tool.get("jdk_folder", "jdk-25"))
+    if platform == "macos":
+        jdk = os.path.join(jdk, "Contents", "Home")
+    if not os.path.isfile(os.path.join(jdk, "bin", "java")):
+        return result("failed", tool, final, "pinned JDK missing at %s; install the jdk entry first" % jdk)
+    gradle = tool.get("gradle") or {}
+    if platform == "macos":
+        rc, _ = runner(["xcode-select", "-p"])
+        if rc != 0:
+            return result("manual", tool, final, "stop: hand to the user — install the Xcode Command Line "
+                          "Tools (C/C++ compiler for Ghidra's decompiler): xcode-select --install ; "
+                          "then re-run ensure_tools.py")
+    with open(props, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    url_line = next((l for l in lines if l.startswith("distributionUrl=")), "")
+    url = url_line.split("=", 1)[1].replace("\\:", ":") if url_line else ""
+    if url != gradle.get("url"):
+        return result("failed", tool, final, "Ghidra's Gradle wrapper wants %r but the manifest pins %r; "
+                      "refusing an unpinned download" % (url, gradle.get("url")))
+    lines = [l for l in lines if not l.startswith("distributionSha256Sum=")]
+    lines.append("distributionSha256Sum=" + gradle["sha256"])
+    with open(props, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    rc, out = runner(["/usr/bin/env", "JAVA_HOME=" + jdk, "GRADLE_USER_HOME=" + os.path.join(root, "gradle-home"),
+                      "bash", gradlew, "-p", gradle_dir, "--no-daemon", "buildNatives"])
+    if rc != 0:
+        return result("failed", tool, final, "gradlew buildNatives failed: " + out)
+    if not folder_is_complete(final, tool, platform):
+        return result("failed", tool, final, "buildNatives finished but %s is missing"
+                      % ", ".join(detect_list(tool, platform)))
+    return result("installed", tool, final, "decompiler natives built with Gradle from %s (sha256 %s pinned)"
+                  % (gradle["url"], gradle["sha256"]))
 
 
 def install_archive(tool, root, platform, fetch, src):
@@ -373,6 +431,8 @@ def process_tool(tool, root, platform, check, fetch, runner):
     if check:
         return result("failed", tool, final, "missing: %s (--check does not download; re-run without --check)"
                       % ", ".join(detect_list(tool, platform)))
+    if tool.get("post") == "ghidra-natives":
+        return build_ghidra_natives(tool, final, root, platform, runner)
     os.makedirs(root, exist_ok=True)
     if tool.get("post") in VENV_POSTS:
         return install_venv(tool, final, platform, runner)

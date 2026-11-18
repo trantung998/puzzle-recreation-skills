@@ -15,6 +15,16 @@ descriptions before using it, because flag names change between versions.
    `<Unity> -batchmode -projectPath <project> -executeMethod <Id>.EditorTools.ModelContractRunner.RunBatch -checksDir <workdir>/checks/<run-id> -logFile <workdir>/checks/<run-id>/model.log -quit`
    A licence is required. Exit code 0 means nothing failed; still read `model.txt`. Compile
    errors show as `error CS` in the log; with them the method never ran.
+   `<Unity>` is the Editor executable for the project's `m_EditorVersion`, under Unity Hub's
+   default install folders:
+
+   | OS | `<Unity>` | Interactive Editor log |
+   |---|---|---|
+   | Windows | `C:\Program Files\Unity\Hub\Editor\<version>\Editor\Unity.exe` | `%LOCALAPPDATA%\Unity\Editor\Editor.log` |
+   | macOS | `/Applications/Unity/Hub/Editor/<version>/Unity.app/Contents/MacOS/Unity` (the binary inside the bundle, never `open Unity.app`, which drops the arguments and returns at once) | `~/Library/Logs/Unity/Editor.log` |
+   | Linux | `~/Unity/Hub/Editor/<version>/Editor/Unity` | `~/.config/unity3d/Editor.log` |
+
+   A custom Hub install location moves the Editor folder; `unity-cli` lists installed Editors.
 
 Use the exact project path when choosing an Editor: a neighbouring project with a similar name
 is a different Editor.
@@ -138,7 +148,7 @@ Batchmode pointer smoke (unproven):
 
 Collect, after the final run, from the control skill: whether compilation failed, the
 console error count and the warning count with the warning text. Without a console command:
-the Editor log, or the batchmode `-logFile`, searched for `error CS`, `Exception` and `Error`.
+the Editor log (per-OS path in §1), or the batchmode `-logFile`, searched for `error CS`, `Exception` and `Error`.
 
 Two sources are reported separately: per-run errors (`console` line and `console.txt`) and the
 current console. Retained older entries that differ from the current counts are named and

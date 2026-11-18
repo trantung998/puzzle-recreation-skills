@@ -1,2 +1,7 @@
 #!/usr/bin/env bash
-exec "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}/decompile-python/Scripts/python.exe" "$@"
+: "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}"
+for _py in "$UNITY_DECOMPILE_TOOLS/decompile-python/Scripts/python.exe" "$UNITY_DECOMPILE_TOOLS/decompile-python/bin/python"; do
+  [ -x "$_py" ] && exec "$_py" "$@"
+done
+echo "decompile-python venv missing under $UNITY_DECOMPILE_TOOLS; run recreate-puzzle-gameplay/scripts/ensure_tools.py" >&2
+exit 127

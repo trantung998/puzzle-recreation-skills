@@ -20,6 +20,12 @@ Logic nằm trong code; **số liệu (level, cân bằng, màu, tốc độ) n�
 **Bước 0 – tái sử dụng:** xem thư mục dự án đã có `dump.cs`/`script.json`, `ghidra-project`,
 export AssetRipper hoặc ghi chú `.md` chưa. Nếu cùng build (cùng version/SHA-256) thì dùng lại.
 
+**Nền tảng:** Windows → chạy trong Git Bash; macOS (Intel và Apple Silicon) → `/bin/bash` mặc
+định là đủ; Linux → bash. `tools-env.sh` tự chọn layout (venv `Scripts/` hay `bin/`, `.exe`,
+JDK `Contents/Home` trên macOS). Script Python chạy được từ Python 3.9 (`/usr/bin/python3` của
+Xcode CLT). macOS báo `Permission denied`, `killed: 9` hoặc "cannot be opened" → xem mục macOS
+trong `references/troubleshooting.md`.
+
 ```bash
 source "<this skill directory>/scripts/tools-env.sh" # absolute path of the directory holding this SKILL.md; independent of $PWD
 # 1. Triage: unpack mọi APK (base + split) vào $W/unpacked/, in ROUTE, ghi $W/paths.env
@@ -41,7 +47,7 @@ bash $SK/ghidra_decompile.sh "$SO" $W/work      # -> $W/work/native-code/*.c, _i
 
 # 5-6. Asset/level (vài chục giây – vài phút) rồi đọc ScriptableObject
 python3 -I $SK/assetripper_export.py game.xapk $W/export
-python3 -P $SK/unity_yaml.py $W/export/ExportedProject/Assets script LevelCollection
+python3 -I $SK/unity_yaml.py $W/export/ExportedProject/Assets script LevelCollection
 ```
 
 | Bước | Kiểm chứng |

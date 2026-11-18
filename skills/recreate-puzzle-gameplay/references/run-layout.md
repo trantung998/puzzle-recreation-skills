@@ -108,18 +108,29 @@ Tools, before every phase that uses decompile tools (`decompile`, `level-catalog
   yourself, and never use "latest". `--check` detects without installing (for planning).
 - Then, in the shell that runs the decompile scripts, set `UNITY_DECOMPILE_TOOLS` to the
   `root` it printed. On Windows, the Bash scripts run in the Git Bash whose path `git-bash`
-  printed. If the `dotnet` path it printed is not on that shell's PATH (for example
-  `<root>/dotnet/dotnet.exe`), prepend its directory in that shell only.
+  printed; on macOS and Linux they run in `bash` (never `source tools-env.sh` from zsh).
+  `tools-env.sh` puts `<root>/dotnet` first on PATH when it exists. If the `dotnet` path
+  `ensure_tools.py` printed is elsewhere and not on that shell's PATH, prepend its directory
+  in that shell only.
 - Exit 3 means a required tool is `failed` or `manual`. That is a stop (section 6): the
   `detail` is the exact unblock step, handed to the user. A `manual` detail starts with
   `stop: hand to the user —` and names a pinned, user-scope, no-admin install (.NET 8.0.34
   through `dotnet-install.ps1`/`dotnet-install.sh` into `<root>/dotnet`; PortableGit 2.56.1
   with its SHA-256 into `<root>/PortableGit`). Never run it yourself (spec §7.1). On macOS
   and Linux the system Git is acceptable; `git-bash` is checked on Windows only.
+- macOS only: `ghidra-natives` (required) builds Ghidra's decompiler binary inside
+  `<root>/ghidra-12.2` with Ghidra's own Gradle wrapper (Gradle 9.8.0, SHA-256 pinned, cache
+  in `<root>/gradle-home`), because the Ghidra release has no macOS binary. It needs the Xcode
+  Command Line Tools; without them it is `manual` (`xcode-select --install`, by the user).
+- `level-decoders` needs Python 3.10+ to create its venv. On macOS, run `ensure_tools.py`
+  with Homebrew's or python.org's `python3` when `/usr/bin/python3` is 3.9; otherwise it is
+  `failed` with that instruction (optional tool, exit code stays 0).
 - ilspycmd and PyYAML come from the tool root through `ensure_tools.py` (and
   `tools-env.sh`); never run `dotnet tool install -g` or an unpinned `pip install`.
-- Stop: decompile phase: Windows + Git Bash only on this fork (`tools-env.sh` needs
-  `cygpath`). On macOS or Linux, stop at `decompile` with that message (section 6).
+- Decompile runs on Windows (Git Bash), macOS (Intel and Apple Silicon) and Linux;
+  `tools-env.sh` selects the layout. On macOS, a tool that fails with `Permission denied`,
+  `killed: 9` or a Gatekeeper dialog is fixed per `unity-apk-decompile`
+  `references/troubleshooting.md` (macOS section) before it counts as a stop.
 - Accepted deviation, disclosed in the handoff's Limits: pip pins use `==` without
   `--require-hashes`; `level-decoders` has never been installed live; `tpk-ar` builds from
   source during that install.
@@ -203,7 +214,7 @@ Stop early only for:
 | Blocker | Typical phase | Before stopping |
 |---|---|---|
 | Metadata encrypted or protected, no dump possible (`unity-apk-decompile` troubleshooting) | decompile | keep the triage output |
-| A tool missing and its install failed or is `manual` (`stop: hand to the user —`), or the platform is not Windows (decompile is Windows + Git Bash only on this fork) | decompile | keep the `ensure_tools.py` JSON; its `detail` is the unblock step |
+| A tool missing and its install failed or is `manual` (`stop: hand to the user —`) | decompile | keep the `ensure_tools.py` JSON; its `detail` is the unblock step |
 | Unity cannot open or compile the project (no matching Editor, licence, compile errors not caused by your code) | build | finish `level-catalog`, `mechanics`, `visuals`: they need no Unity |
 | No level data found | level-catalog | append an `EVENT` line listing every place searched |
 

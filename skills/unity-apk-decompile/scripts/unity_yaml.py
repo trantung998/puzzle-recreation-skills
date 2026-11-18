@@ -7,10 +7,10 @@ Library use (import from your own script dir, not from the export dir):
     docs = load_docs(path)                    # list of {"MonoBehaviour": {...}} etc.
 
 CLI:
-    python3 -P unity_yaml.py <Assets-dir> find <regex>     # list ScriptableObject/MonoBehaviour assets whose
+    python3 -I unity_yaml.py <Assets-dir> find <regex>     # list ScriptableObject/MonoBehaviour assets whose
                                                            # m_Name or script field names match
-    python3 -P unity_yaml.py <Assets-dir> dump <file> [N]  # print first N docs as JSON
-    python3 -P unity_yaml.py <Assets-dir> script <Name>    # assets whose m_Script guid is <Name>.cs
+    python3 -I unity_yaml.py <Assets-dir> dump <file> [N]  # print first N docs as JSON
+    python3 -I unity_yaml.py <Assets-dir> script <Name>    # assets whose m_Script guid is <Name>.cs
 
 Needs PyYAML; falls back to ~/.cache/unity-apk-decompile/venv (setup line printed if missing). Unity tags (!u!114 &123) are stripped; fileID
 references stay as {"fileID": .., "guid": .., "type": ..} dicts - resolve guid with guid_map().
@@ -26,7 +26,7 @@ try:
     import yaml
 except ModuleNotFoundError:
     if VENV_PY.exists() and Path(sys.executable) != VENV_PY:
-        os.execv(str(VENV_PY), [str(VENV_PY), "-P", *sys.argv])
+        os.execv(str(VENV_PY), [str(VENV_PY), "-I", *sys.argv])
     sys.exit("PyYAML missing. One-time setup:\n  python3 -m venv ~/.cache/unity-apk-decompile/venv && "
              "~/.cache/unity-apk-decompile/venv/bin/pip install pyyaml")
 

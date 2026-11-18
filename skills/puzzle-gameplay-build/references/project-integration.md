@@ -134,7 +134,9 @@ finally
 still loaded, at the same path, and still dirty.
 
 **Route B: no Editor has the project open.** Run the same builder in a separate process:
-`<Unity> -batchmode -projectPath <project> -executeMethod TileTwister.EditorTools.SceneBuilder.Build -logFile <workdir>/checks/<run-id>/scene-build.log -quit`.
+`<Unity> -batchmode -projectPath <project> -executeMethod TileTwister.EditorTools.SceneBuilder.Build -logFile <workdir>/checks/<run-id>/scene-build.log -quit`
+(`<Unity>` per OS: `puzzle-gameplay-verification` `references/unity-control.md` §1; on macOS
+it is `.../Unity.app/Contents/MacOS/Unity`).
 That process loads no user scene, so `NewSceneMode.Single` is acceptable there only when
 `Application.isBatchMode` is true. Never take that branch in an interactive Editor. A
 second Unity process cannot open a project an Editor already has open; that is not a

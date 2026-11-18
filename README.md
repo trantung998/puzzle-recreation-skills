@@ -2,7 +2,8 @@
 
 Agent skills that recreate the gameplay of an Android Unity puzzle game (APK / XAPK / APKS / APKM)
 inside a Unity project: the first N base levels, original visuals and behaviour as far as evidence
-allows, and fast level switching. Works in OpenCode, Codex and Claude Code.
+allows, and fast level switching. Works in OpenCode, Codex and Claude Code, on Windows, macOS
+(Intel and Apple Silicon) and Linux.
 
 ## Contents
 
@@ -35,9 +36,18 @@ puzzle-recreation-skills/
    ```
 
    It never replaces an existing entry. To undo, remove each link with `rmdir` (Windows) or
-   `rm` on the link (Unix) — never a recursive delete.
+   `rm` on the link (macOS, Linux) — never a recursive delete.
 
-On Windows use `python` or `py -3` where the docs say `python3`.
+On Windows use `python` or `py -3` where the docs say `python3`. On macOS `python3` from the
+Xcode Command Line Tools (3.9) or Homebrew both work; every script supports Python 3.9+.
+
+macOS quick install from a clone of this repo (copies only folders that are not there yet):
+
+```bash
+mkdir -p ~/.agents/skills
+for s in skills/*/; do n=$(basename "$s"); [ -e ~/.agents/skills/$n ] || cp -R "$s" ~/.agents/skills/$n; done
+python3 ~/.agents/skills/recreate-puzzle-gameplay/scripts/install_links.py --harness claude
+```
 
 ## Use
 
@@ -53,12 +63,18 @@ handoff) and can be resumed by invoking the skill again.
 ## Requirements
 
 - Unity Editor already installed for the target project (never auto-installed).
-- Decompile phase: **Windows + Git Bash only** in this fork.
+- Decompile phase: Windows (Git Bash), macOS (stock `/bin/bash`, Intel or Apple Silicon) or
+  Linux. `ensure_tools.py` picks the pinned archive for the OS and CPU (`macos-arm64` on
+  Apple Silicon).
 - Missing decompile tools (JDK, Ghidra, Il2CppDumper, AssetRipper, ILSpy, Python venv) are
   installed automatically with pinned versions and SHA-256 checks, into
   `$UNITY_DECOMPILE_TOOLS`, else `~/.cache/puzzle-recreation/tools`.
-  .NET runtime and Git Bash are not auto-installed: the run stops with an exact, pinned, no-admin
-  command for you to run.
+  .NET runtime (and Git Bash on Windows) are not auto-installed: the run stops with an exact,
+  pinned, no-admin command for you to run. On macOS an existing `dotnet` (official installer in
+  `/usr/local/share/dotnet` or Homebrew) is detected.
+- macOS extra: Xcode Command Line Tools (`xcode-select --install`) — Ghidra's release has no
+  macOS decompiler binary, so `ensure_tools.py` builds it locally (~40 s). For the optional
+  `level-decoders` tool run `ensure_tools.py` with Python 3.10+ (Homebrew or python.org).
 
 ## Known limits
 
@@ -80,5 +96,6 @@ handoff) and can be resumed by invoking the skill again.
 python3 -m unittest discover -s ~/.agents/skills/recreate-puzzle-gameplay/tests
 python3 -m unittest discover -s ~/.agents/skills/puzzle-evidence-extraction/tests
 python3 -m unittest discover -s ~/.agents/skills/puzzle-gameplay-verification/tests
+bash ~/.agents/skills/unity-apk-decompile/tests/test_tools_env.sh   # Git Bash on Windows
 python3 tools/validate_skills.py ~/.agents/skills/recreate-puzzle-gameplay ~/.agents/skills/puzzle-evidence-extraction ~/.agents/skills/puzzle-gameplay-build ~/.agents/skills/puzzle-gameplay-verification
 ```

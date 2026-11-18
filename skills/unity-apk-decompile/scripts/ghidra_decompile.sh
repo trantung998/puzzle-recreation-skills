@@ -15,6 +15,19 @@ for c in "$AH" /opt/homebrew/opt/ghidra/libexec/support/analyzeHeadless "$(comma
   [[ -n "$c" && -x "$c" ]] && { AH=$c; break; }
 done
 [[ -x "$AH" ]] || { echo "analyzeHeadless not found; set ANALYZE_HEADLESS" >&2; exit 2; }
+# Ghidra release zips carry no macOS decompiler binary; without one every target ends FAIL.
+if [[ "$(uname -s)" == Darwin ]]; then
+  GH=$(cd "$(dirname "$AH")/.." && pwd)
+  NATIVE=
+  for c in "$GH"/Ghidra/Features/Decompiler/os/mac_*/decompile "$GH"/Ghidra/Features/Decompiler/build/os/mac_*/decompile; do
+    [[ -x "$c" ]] && NATIVE=$c
+  done
+  if [[ -z "$NATIVE" ]]; then
+    echo "no macOS decompiler binary in $GH: run recreate-puzzle-gameplay/scripts/ensure_tools.py (entry ghidra-natives)" >&2
+    echo "  or by hand: JAVA_HOME=<jdk> bash \"$GH/support/gradle/gradlew\" -p \"$GH/support/gradle\" buildNatives" >&2
+    exit 2
+  fi
+fi
 export GHIDRA_HEADLESS_MAXMEM=${GHIDRA_HEADLESS_MAXMEM:-16G}   # default 2G hangs/OOMs on 100+ MB libs
 [[ -s "$WORK/targets.tsv" ]] || { echo "missing $WORK/targets.tsv (run select_targets.py)" >&2; exit 2; }
 
