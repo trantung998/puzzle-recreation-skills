@@ -20,6 +20,13 @@ with the real tools; `ghidra_decompile.sh` on an arm64 ELF (`_index.tsv` OK);
 `il2cppdumper`, `ilspycmd --version` and AssetRipper headless start. Harness skill listing,
 a full APK run and the Unity batchmode routes were not run on macOS.
 
+Il2CppDumper was later replaced by Il2CppInspectorRedux 2026.2 (Legacy CLI, .NET 10 runtime),
+because Il2CppDumper cannot read metadata v39 (Unity 6). Checked on Windows 11 (Git Bash) on
+2026-11-18: `ensure_tools.py` install (SHA-256 matched), `run_il2cppinspector.sh` on v39 arm64
+(3 games), v39 armv7 and v31 arm64, then `select_targets.py` + `ghidra_decompile.sh`
+(`_index.tsv` all OK on arm64 and armv7). The macOS and Linux archives are pinned from the
+publisher API digests but were not run.
+
 ## Where each harness finds skills
 
 | Harness | User (global) location | Project location | Precedence |

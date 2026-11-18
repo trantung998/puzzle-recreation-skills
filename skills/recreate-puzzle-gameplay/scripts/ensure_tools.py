@@ -133,7 +133,11 @@ def default_fetch(url, dest):
 
 def default_runner(argv):
     p = subprocess.run(argv, capture_output=True, text=True, timeout=1800)
-    return p.returncode, ((p.stdout or "") + (p.stderr or ""))[-500:]
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def tail(out):
+    return out[-500:]
 
 
 class UnsafeArchive(Exception):
@@ -269,21 +273,40 @@ def result(status, tool, path, detail):
     return {"status": status, "version": tool.get("version", ""), "path": path, "detail": detail}
 
 
-def detect_command_tool(tool, platform, root):
+def runtime_versions(path, name, runner):
+    """Versions of runtime `name` listed by `<dotnet> --list-runtimes`."""
+    try:
+        rc, out = runner([path, "--list-runtimes"])
+    except Exception:
+        return []
+    return re.findall(r"^%s (\d+\.\S+)" % re.escape(name), out or "", re.M) if rc == 0 else []
+
+
+def detect_command_tool(tool, platform, root, runner):
+    candidates = []
     found = shutil.which(tool["detect_command"]) if tool.get("detect_command") else None
-    if found and platform == "windows" and "\\windows\\system32\\" in found.lower().replace("/", "\\"):
-        found = None
-    if not found:
-        for p in (tool.get("detect_extra") or {}).get(platform, []):
-            p = os.path.normpath(os.path.expandvars(os.path.expanduser(p)).replace("{root}", root))
-            if os.path.isfile(p):
-                found = p
-                break
-    if found:
-        return result("present", tool, found, "found on this machine")
+    if found and not (platform == "windows" and "\\windows\\system32\\" in found.lower().replace("/", "\\")):
+        candidates.append(found)
+    for p in (tool.get("detect_extra") or {}).get(platform, []):
+        p = os.path.normpath(os.path.expandvars(os.path.expanduser(p)).replace("{root}", root))
+        if os.path.isfile(p) and os.path.normcase(p) not in {os.path.normcase(os.path.normpath(c)) for c in candidates}:
+            candidates.append(p)
+    need = tool.get("min_runtime")
+    seen = []
+    for p in candidates:
+        if not need:
+            return result("present", tool, p, "found on this machine")
+        versions = runtime_versions(p, need["name"], runner)
+        if any(int(v.split(".")[0]) >= need["major"] for v in versions):
+            return result("present", tool, p, "found on this machine with %s %s" % (need["name"], ", ".join(versions)))
+        seen.append("%s (%s)" % (p, ", ".join(versions) or "no %s" % need["name"]))
     # manual hints are user-scope stop instructions; the agent never runs them itself
     hint = (tool.get("manual") or {}).get(platform, "stop: hand to the user \u2014 see the tool's official download page")
-    return result("manual", tool, "", "Not found. " + hint.replace("{root}", root))
+    if seen:
+        why = "No %s %d+ (found %s). " % (need["name"], need["major"], "; ".join(seen))
+    else:
+        why = "Not found. "
+    return result("manual", tool, "", why + hint.replace("{root}", root))
 
 
 def install_venv(tool, final, platform, runner):
@@ -299,14 +322,14 @@ def install_venv(tool, final, platform, runner):
     try:
         rc, out = runner([sys.executable, "-m", "venv", final])
         if rc != 0:
-            raise RuntimeError("venv creation failed: " + out)
+            raise RuntimeError("venv creation failed: " + tail(out))
         sub = ("Scripts", "python.exe") if platform == "windows" else ("bin", "python")
         pins = tool.get("pip") or []
         if not pins or not all("==" in p for p in pins):
             raise RuntimeError("manifest has no exact-pinned 'pip' list")
         rc, out = runner([os.path.join(final, *sub), "-m", "pip", "install", *pins])
         if rc != 0:
-            raise RuntimeError("pip install %s failed: %s" % (" ".join(pins), out))
+            raise RuntimeError("pip install %s failed: %s" % (" ".join(pins), tail(out)))
         if not folder_is_complete(final, tool, platform):
             raise RuntimeError("venv missing expected files")
     except Exception as e:
@@ -316,14 +339,16 @@ def install_venv(tool, final, platform, runner):
         sys.executable, ", ".join(pins)))
 
 
-def post_il2cppdumper_config(folder):
-    path = os.path.join(folder, "config.json")
-    with open(path, encoding="utf-8-sig") as f:
-        data = json.load(f)
-    data["RequireAnyKey"] = False
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+def post_exec_bits(folder, tool, platform):
+    """Release zips built on CI can store native executables without the exec bit."""
+    for rel in tool.get("exec") or []:
+        if platform == "windows":
+            rel += ".exe"
+        path = os.path.join(folder, *rel.split("/"))
+        if not os.path.isfile(path):
+            raise RuntimeError("archive layout unexpected: missing executable " + rel)
+        if os.name != "nt":
+            os.chmod(path, os.stat(path).st_mode | 0o755)
 
 
 def build_ghidra_natives(tool, final, root, platform, runner):
@@ -365,7 +390,7 @@ def build_ghidra_natives(tool, final, root, platform, runner):
     rc, out = runner(["/usr/bin/env", "JAVA_HOME=" + jdk, "GRADLE_USER_HOME=" + os.path.join(root, "gradle-home"),
                       "bash", gradlew, "-p", gradle_dir, "--no-daemon", "buildNatives"])
     if rc != 0:
-        return result("failed", tool, final, "gradlew buildNatives failed: " + out)
+        return result("failed", tool, final, "gradlew buildNatives failed: " + tail(out))
     if not folder_is_complete(final, tool, platform):
         return result("failed", tool, final, "buildNatives finished but %s is missing"
                       % ", ".join(detect_list(tool, platform)))
@@ -398,8 +423,8 @@ def install_archive(tool, root, platform, fetch, src):
             raise RuntimeError("sha256 mismatch for %s: expected %s, got %s" % (url, want.lower(), digest))
         extract(archive, src["archive"], partial)
         strip_single_top_dir(partial)
-        if tool.get("post") == "il2cppdumper-config":
-            post_il2cppdumper_config(partial)
+        if tool.get("post") == "exec-bits":
+            post_exec_bits(partial, tool, platform)
         if not folder_is_complete(partial, tool, platform):
             raise RuntimeError("archive layout unexpected: missing %s" % ", ".join(detect_list(tool, platform)))
         os.rename(partial, final)
@@ -421,7 +446,7 @@ def install_archive(tool, root, platform, fetch, src):
 
 def process_tool(tool, root, platform, check, fetch, runner):
     if not tool.get("folder"):
-        return detect_command_tool(tool, platform, root)
+        return detect_command_tool(tool, platform, root, runner)
     folder = tool["folder"]
     if folder in (".", "..") or re.search(r"[\\/:\0]", folder):
         return result("failed", tool, "", "manifest folder must be a plain directory name: %r" % folder)

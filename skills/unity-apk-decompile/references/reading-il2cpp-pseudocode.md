@@ -39,7 +39,8 @@ if (len <= idx) { func_0x...(); }                             // IndexOutOfRange
 - Gọi trực tiếp tới method C# → tên đầy đủ từ `script.json` (generic được **specialize**: mỗi
   instantiation một địa chỉ; `__Il2CppFullySharedGenericType` = bản chia sẻ).
 - Virtual: `(**(code **)(*(int *)obj + off))(obj, ..., *(...)(*(int *)obj + off + 4))` → vtable slot
-  `{methodPtr, MethodInfo*}`; tra slot trong `dump.cs` (`// Slot: N`) của class gốc.
+  `{methodPtr, MethodInfo*}`; slot N = thành viên thứ N (đếm từ 0) của `struct <Class>__VTable`
+  trong `il2cpp.h` (dump.cs của Inspector không ghi `// Slot: N`).
 - Interface: đi qua helper resolve (`func_0x...`) với `Method$IFoo.Bar()` làm tham số.
 - Burst/ECS (`$BurstManaged`, `__codegen__`): logic thật có thể nằm trong job `Execute` hoặc
   trong `lib_burst_generated.so` (không có metadata – khó hơn nhiều).

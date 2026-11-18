@@ -8,7 +8,7 @@
 | `analyzeHeadless` không có trong PATH | Homebrew không tạo lệnh này | `/opt/homebrew/opt/ghidra/libexec/support/analyzeHeadless`, hoặc `ANALYZE_HEADLESS=...` |
 | `ContextChangeException: Context register change conflicts` | Đặt TMode tại địa chỉ đã disassemble | Script chỉ đặt TMode khi chưa có lệnh – đừng gỡ điều kiện đó |
 | Output toàn `halt_baddata` / lệnh vô nghĩa (ARM32) | Hàm ở Thumb mode nhưng được disassemble ARM | Xoá project (`rm -rf work/ghidra-project`) rồi sửa `ensureFunction` đặt TMode = 1 cho địa chỉ đó; kiểm tra trong GUI (`ghidraRun`, Ctrl+Shift+F để xem context) |
-| `NO_FUNCTION` | Địa chỉ nằm giữa dữ liệu hoặc RVA sai build | Kiểm tra `script.json` và `.so` cùng build; xem `dump.cs` có `RVA: 0x0` (method abstract / không có body) |
+| `NO_FUNCTION` | Địa chỉ nằm giữa dữ liệu hoặc RVA sai build | Kiểm tra `script.json` và `.so` cùng build; method abstract / không có body không có `// 0x...-0x...` trong `dump.cs` (`RVA: 0x0` với dump.cs cũ của Il2CppDumper) |
 | Muốn xem bằng GUI | | `ghidraRun`, mở `work/ghidra-project/il2cpp.gpr`; `G` → địa chỉ (`image base + RVA`) |
 | Gọi lại bị chậm | Import lại mỗi lần | Script tái dùng project; chỉ import khi chưa có `il2cpp.rep` |
 
@@ -27,15 +27,19 @@ Instruction Finder, Non-Returning Functions - Discovered, Stack.
 | `JAVA_HOME` sai / `java` không chạy | JDK macOS có layout bundle | `tools-env.sh` đặt `JAVA_HOME=<root>/jdk-25/Contents/Home` |
 | `source tools-env.sh` lỗi trong zsh | Script dựa vào `BASH_SOURCE` | Chạy trong bash: `bash -c 'source .../tools-env.sh && ...'` |
 
-## Il2CppDumper / Cpp2IL
+## Il2CppInspectorRedux / Cpp2IL
 
 | Triệu chứng | Xử lý |
 |---|---|
-| `You must install or update .NET` | `DOTNET_ROLL_FORWARD=LatestMajor` (script đã đặt) |
-| `ERROR: This file may be protected.` rồi vẫn `Done!` | Vô hại (do tìm `JNI_OnLoad`) |
-| `Metadata version not supported` / crash khi đọc metadata | Metadata quá mới hoặc bị sửa: Cpp2IL / Il2CppInspectorRedux; hoặc REA `inspect-il2cpp-metadata` (v24/27/29/31/39) |
-| `CodeRegistration: 0` / không tìm được | `.so` bị pack/mã hoá (kiểm tra triage `protection`) hoặc sai cặp so+metadata. Thử Il2CppDumper chế độ manual hoặc dump `.so` từ bộ nhớ |
+| `You must install or update .NET` ... `Microsoft.NETCore.App 10.0.0` | Cần runtime .NET 10 (roll-forward không hạ xuống 8/9). `ensure_tools.py` in lệnh cài user-scope vào `<root>/dotnet`; `tools-env.sh` tự đặt `DOTNET_ROOT` |
+| Cùng lỗi nhưng đòi `Microsoft.AspNetCore.App` | Đang chạy `Il2CppInspector.Redux.CLI`; dùng Legacy CLI `Il2CppInspector(.exe)` |
+| `Permission denied` khi chạy `Il2CppInspector` (Linux/macOS) | Zip phát hành lưu file 0644; `ensure_tools.py` (post `exec-bits`) và `run_il2cppinspector.sh` tự `chmod +x` |
+| `No exact match for IL2CPP APIs found in binary` | Vô hại: chỉ ảnh hưởng C++ scaffolding, không ảnh hưởng `dump.cs`/`script.json` |
+| Il2CppDumper: `Metadata file supplied is not a supported version[39]` | Il2CppDumper dừng ở v31. Dùng `run_il2cppinspector.sh`; không sửa version trong header metadata |
+| Metadata mới hơn mức Inspector hỗ trợ / crash khi đọc metadata | Cpp2IL; hoặc REA `inspect-il2cpp-metadata` (v24/27/29/31/39) |
+| `CodeRegistration`/`MetadataRegistration` không tìm được | `.so` bị pack/mã hoá (kiểm tra triage `protection`) hoặc sai cặp so+metadata. Dump `.so` từ bộ nhớ (Inspector đọc được ELF dump với `--image-base`) |
 | `dump.cs` có tên nhưng địa chỉ lệch | `.so` và metadata khác build – lấy cả hai từ cùng một XAPK |
+| Vài `StringLiteral` rỗng trong `stringliteral.json` | Inspector cắt literal bắt đầu bằng ký tự `\0` (đo: 30/29 048 chuỗi); tra literal nhị phân trong asset |
 
 ## Metadata mã hoá / ẩn
 
@@ -50,9 +54,9 @@ Dấu hiệu: không có magic `AF 1B B1 FA` ở đầu file, file không tồn 
 
 | Lỗi | Xử lý |
 |---|---|
-| `unsupported_target: only 64-bit little-endian images` | Binary armv7: dùng Il2CppDumper (REA vẫn đọc được metadata riêng) |
+| `unsupported_target: only 64-bit little-endian images` | Binary armv7: dùng `run_il2cppinspector.sh` (REA vẫn đọc được metadata riêng) |
 | `provider_timeout` (`ghidra.startup_timeout_ms`, 330 s) khi decompile | REA để Ghidra import + analyze; với lib lớn hãy dùng `ghidra_decompile.sh` của skill. Nếu vẫn dùng REA: `REA_GHIDRA_STARTUP_TIMEOUT_MS=1800000` và tăng timeout phía client; không lặp lại cùng một lời gọi đã timeout |
-| `unsupported-pointer-encoding` | Android packed relocations (APS2) – dùng Il2CppDumper |
+| `unsupported-pointer-encoding` | Android packed relocations (APS2) – dùng `run_il2cppinspector.sh` |
 
 ## AssetRipper
 

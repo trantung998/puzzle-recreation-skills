@@ -254,17 +254,29 @@ class EnsureToolsTests(unittest.TestCase):
         dl = os.path.join(self.root, "downloads")
         self.assertEqual(os.listdir(dl) if os.path.isdir(dl) else [], [])
 
-    def test_il2cppdumper_config_post(self):
+    def test_exec_bits_post_marks_apphost_executable(self):
+        # Il2CppInspectorRedux release zips store the Linux/macOS apphost as 0644
         url = "https://x.invalid/i.zip"
-        cfg = json.dumps({"DumpMethod": True, "RequireAnyKey": True})
-        fetch = FakeFetch({url: zip_bytes({"config.json": cfg, "Il2CppDumper.dll": b"x"})})
-        res = self.ensure([entry("il2cppdumper", "i-1", url, detect=["Il2CppDumper.dll"],
-                                 post="il2cppdumper-config")], fetch)
-        self.assertEqual(res["tools"]["il2cppdumper"]["status"], "installed")
-        with open(os.path.join(self.root, "i-1", "config.json")) as f:
-            data = json.load(f)
-        self.assertIs(data["RequireAnyKey"], False)
-        self.assertIs(data["DumpMethod"], True)
+        fetch = FakeFetch({url: zip_bytes({"Il2CppInspectorRedux.Legacy.CLI-linux-x64/Il2CppInspector": b"elf",
+                                           "Il2CppInspectorRedux.Legacy.CLI-linux-x64/Il2CppInspector.pdb": b"p"})})
+        e = entry("il2cppinspector", "i-1", url, detect={"linux": ["Il2CppInspector"]}, post="exec-bits",
+                  exec=["Il2CppInspector"])
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux")
+        self.assertEqual(res["tools"]["il2cppinspector"]["status"], "installed", res)
+        exe = os.path.join(self.root, "i-1", "Il2CppInspector")
+        self.assertTrue(os.path.isfile(exe))
+        if os.name != "nt":
+            self.assertTrue(os.access(exe, os.X_OK))
+
+    def test_exec_bits_post_missing_file_fails(self):
+        url = "https://x.invalid/i.zip"
+        fetch = FakeFetch({url: zip_bytes({"other": b"x"})})
+        e = entry("il2cppinspector", "i-1", url, detect={"linux": ["other"]}, post="exec-bits",
+                  exec=["Il2CppInspector"])
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux")
+        self.assertEqual(res["tools"]["il2cppinspector"]["status"], "failed")
+        self.assertIn("Il2CppInspector", res["tools"]["il2cppinspector"]["detail"])
+        self.assertFalse(os.path.exists(os.path.join(self.root, "i-1")))
 
     def test_venv_post_uses_runner_and_cleans_on_failure(self):
         calls = []
@@ -507,6 +519,47 @@ class EnsureToolsTests(unittest.TestCase):
         self.assertEqual(os.path.normcase(os.path.normpath(res["tools"]["dotnet"]["path"])),
                          os.path.normcase(os.path.join(self.root, "dotnet", "dotnet.exe")))
 
+    def dotnet10(self, **extra):
+        e = {"id": "dotnet", "version": "10+", "folder": None, "required": True, "post": "none",
+             "detect_command": "dotnet", "detect": [], "min_runtime": {"name": "Microsoft.NETCore.App", "major": 10},
+             "manual": {"windows": "stop: hand to the user \u2014 install into \"{root}/dotnet\""}}
+        e.update(extra)
+        return e
+
+    def test_dotnet_runtime_too_old_is_manual(self):
+        calls = []
+
+        def runner(argv):
+            calls.append(argv)
+            return 0, ("Microsoft.AspNetCore.App 8.0.14 [/x]\nMicrosoft.NETCore.App 8.0.14 [/x]\n"
+                       "Microsoft.NETCore.App 9.0.7 [/x]\nMicrosoft.WindowsDesktop.App 9.0.7 [/x]\n")
+        with mock.patch.object(ensure_tools.shutil, "which", return_value="/usr/bin/dotnet"):
+            res = self.ensure([self.dotnet10()], FakeFetch({}), runner=runner)
+        t = res["tools"]["dotnet"]
+        self.assertEqual(t["status"], "manual", t)
+        self.assertIn("Microsoft.NETCore.App 10+", t["detail"])
+        self.assertIn("8.0.14, 9.0.7", t["detail"])
+        self.assertIn('"%s/dotnet"' % self.root, t["detail"])
+        self.assertEqual(calls, [["/usr/bin/dotnet", "--list-runtimes"]])
+
+    def test_dotnet_runtime_new_enough_under_root_wins_over_old_path(self):
+        self.make_present("dotnet", "dotnet.exe")
+        mine = os.path.join(self.root, "dotnet", "dotnet.exe")
+
+        def runner(argv):
+            new = os.path.normcase(os.path.normpath(argv[0])) == os.path.normcase(mine)
+            return 0, "Microsoft.NETCore.App %s [/x]\n" % ("10.0.15" if new else "9.0.7")
+        e = self.dotnet10(detect_extra={"windows": ["{root}/dotnet/dotnet.exe"]})
+        with mock.patch.object(ensure_tools.shutil, "which", return_value="/usr/bin/dotnet"):
+            res = self.ensure([e], FakeFetch({}), runner=runner)
+        t = res["tools"]["dotnet"]
+        self.assertEqual(t["status"], "present", t)
+        self.assertEqual(os.path.normcase(os.path.normpath(t["path"])), os.path.normcase(mine))
+
+    def test_default_runner_keeps_full_output(self):
+        code, out = ensure_tools.default_runner([sys.executable, "-c", "print('x' * 2000)"])
+        self.assertEqual((code, len(out.strip())), (0, 2000))
+
     def test_relative_env_root_made_absolute(self):
         with mock.patch.dict(os.environ, {"UNITY_DECOMPILE_TOOLS": os.path.join("rel", "tools")}):
             root = ensure_tools.resolve_root()
@@ -523,10 +576,12 @@ class EnsureToolsTests(unittest.TestCase):
                 for banned in ("winget", "sudo", "brew", "apt ", "latest", "Program Files"):
                     self.assertNotIn(banned, hint, (tid, plat))
                 self.assertIn("{root}", hint, (tid, plat))
-        self.assertIn("dotnet-install.ps1 -Runtime dotnet -Version 8.0.34 -InstallDir", by_id["dotnet"]["manual"]["windows"])
+        self.assertIn("dotnet-install.ps1 -Runtime dotnet -Version 10.0.15 -InstallDir", by_id["dotnet"]["manual"]["windows"])
         for plat in ("linux", "macos"):
-            self.assertIn("dotnet-install.sh --runtime dotnet --version 8.0.34 --install-dir",
+            self.assertIn("dotnet-install.sh --runtime dotnet --version 10.0.15 --install-dir",
                           by_id["dotnet"]["manual"][plat])
+        # Il2CppInspectorRedux 2026.2 is built for .NET 10 and cannot roll back to an older runtime
+        self.assertEqual(by_id["dotnet"]["min_runtime"], {"name": "Microsoft.NETCore.App", "major": 10})
         self.assertIn("{root}/dotnet/dotnet.exe", by_id["dotnet"]["detect_extra"]["windows"])
         git = by_id["git-bash"]["manual"]["windows"]
         self.assertIn("PortableGit-2.56.1-64-bit.7z.exe", git)
@@ -573,7 +628,7 @@ class EnsureToolsTests(unittest.TestCase):
         by_id = {t["id"]: t for t in manifest["tools"]}
         self.assertEqual({k: v["folder"] for k, v in by_id.items() if v.get("folder")}, {
             "python-venv": "decompile-python", "jdk": "jdk-25", "ghidra": "ghidra-12.2",
-            "il2cppdumper": "Il2CppDumper-6.7.46", "assetripper": "AssetRipper_2.0.0",
+            "il2cppinspector": "Il2CppInspectorRedux-2026.2", "assetripper": "AssetRipper_2.0.0",
             "ilspycmd": "ilspycmd-9.1.0", "level-decoders": "level-decoders-venv",
             "ghidra-natives": "ghidra-12.2"})
         self.assertIn("dotnet", by_id)
@@ -595,11 +650,18 @@ class EnsureToolsTests(unittest.TestCase):
         for tid, keys in (("jdk", ("windows", "linux", "macos", "linux-arm64", "macos-arm64")),
                           ("assetripper", ("windows", "linux", "macos", "linux-arm64", "macos-arm64")),
                           ("ghidra", ("windows", "linux", "macos")),
-                          ("il2cppdumper", ("windows",)), ("ilspycmd", ("windows",))):
+                          ("il2cppinspector", ("windows", "linux", "macos", "linux-arm64", "macos-arm64")),
+                          ("ilspycmd", ("windows",))):
             for key in keys:
                 self.assertIsNotNone(by_id[tid][key]["sha256"], (tid, key))
+        self.assertNotIn("il2cppdumper", by_id)
+        ins = by_id["il2cppinspector"]
+        self.assertEqual((ins["post"], ins["exec"]), ("exec-bits", ["Il2CppInspector"]))
+        self.assertEqual(ins["detect"]["windows"], ["Il2CppInspector.exe"])
         for key in ("windows", "linux", "macos", "linux-arm64", "macos-arm64"):
             self.assertEqual(by_id["assetripper"][key]["sha256_source"], "publisher-api")
+            self.assertEqual(ins[key]["sha256_source"], "publisher-api")
+            self.assertIn("/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-", ins[key]["url"])
             if key != "windows":
                 self.assertEqual(by_id["jdk"][key]["sha256_source"], "publisher-checksum-file")
         for t in manifest["tools"]:

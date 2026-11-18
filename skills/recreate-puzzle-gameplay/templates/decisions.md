@@ -53,7 +53,7 @@ Run event (refusal, block, redone phase, stop):
 # Decisions: TileTwister
 - [intake] RECORD Unity version: 6000.0.41f1 | source: ProjectSettings/ProjectVersion.txt
 - [intake] RECORD open scene Assets/Scenes/Menu.unity, dirty | source: unity-pipeline scene list
-- [decompile] RECORD tools: Ghidra 12.2, JDK Temurin 25.0.5+8, Il2CppDumper 6.7.46 | source: progress.json "tools" (ensure_tools.py)
+- [decompile] RECORD tools: Ghidra 12.2, JDK Temurin 25.0.5+8, Il2CppInspectorRedux 2026.2 | source: progress.json "tools" (ensure_tools.py)
 - [level-catalog] stage order = serialized order of StageCatalog.stages | Inferred | reason: the loader's index rule is not decompiled; the catalog list is the only ordered source | searched: stringliteral.json for "Stage_{0" (nothing found); StageLoader in dump.cs (names only, no branch read)
 - [visuals] tile-clear pop duration = 0.25 s, ease-out quad | Inferred | reason: equals the recovered 0.25 s swap clip TileSwap.anim, the nearest original timing | searched: AnimationClip in the export (no clear clip); TileView methods 5120-5131 in native code (no duration literal); no reference video supplied
 - [build] CHANGE ProjectSettings activeInputHandler: 0 -> 2 | why: spec §4 needs real Input System pointer events | revert: Player Settings > Active Input Handling = Input Manager (Old)

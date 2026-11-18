@@ -17,7 +17,8 @@ ln -s ~/Desktop/unity-apk-decompile ~/.claude/skills/unity-apk-decompile
 |---|---|
 | `SKILL.md` | Quy trình, rẽ nhánh, sai lầm thường gặp |
 | `scripts/unity_triage.py` | Giải nén APK/XAPK, nhận diện backend/ABI/metadata, ghi `paths.env` |
-| `scripts/run_il2cppdumper.sh` | Chạy Il2CppDumper không tương tác |
+| `scripts/run_il2cppinspector.sh` | Chạy Il2CppInspectorRedux (metadata tới v39, Unity 6), ghi bộ file kiểu Il2CppDumper |
+| `scripts/inspector_to_dumper.py` | `metadata.json` của Inspector → `script.json`, `stringliteral.json`, `il2cpp.h` |
 | `scripts/select_targets.py` | Chọn method theo regex → `targets.tsv`, `names.tsv`, `labels.tsv` |
 | `scripts/dump_class.py` | Field/offset, method/RVA của class; tra field theo offset |
 | `scripts/ghidra_decompile.sh` + `scripts/ghidra/DecompileIl2cppTargets.java` | Ghidra headless `-noanalysis`, decompile có mục tiêu, tự chú thích tên |
@@ -27,5 +28,5 @@ ln -s ~/Desktop/unity-apk-decompile ~/.claude/skills/unity-apk-decompile
 
 ## Phụ thuộc
 
-Python 3, .NET (Il2CppDumper), Ghidra (`analyzeHeadless`), AssetRipper.GUI.Free, PyYAML
+Python 3, .NET 10 runtime (Il2CppInspectorRedux Legacy CLI, ilspycmd), Ghidra (`analyzeHeadless`), AssetRipper.GUI.Free, PyYAML
 (tự tạo venv `~/.cache/unity-apk-decompile/venv` nếu thiếu).

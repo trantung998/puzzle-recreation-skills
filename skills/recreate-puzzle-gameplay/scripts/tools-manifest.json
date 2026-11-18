@@ -167,37 +167,60 @@
       "post": "none"
     },
     {
-      "id": "il2cppdumper",
-      "version": "6.7.46",
-      "folder": "Il2CppDumper-6.7.46",
+      "id": "il2cppinspector",
+      "version": "Il2CppInspectorRedux 2026.2, Legacy CLI (metadata v24-v39+; needs .NET 10 runtime)",
+      "folder": "Il2CppInspectorRedux-2026.2",
       "required": true,
-      "neutral": true,
-      "detect": [
-        "Il2CppDumper.dll",
-        "config.json"
-      ],
+      "detect": {
+        "windows": [
+          "Il2CppInspector.exe"
+        ],
+        "linux": [
+          "Il2CppInspector"
+        ],
+        "macos": [
+          "Il2CppInspector"
+        ]
+      },
       "windows": {
-        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
-        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
-        "sha256_source": "local-file",
-        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "url": "https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-win-x64.zip",
+        "sha256": "f30788a94e938a96a8fcace95d22e766aed4eb721e46af2421ff399d218efd14",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/LukeFZ/Il2CppInspectorRedux/releases/tags/2026.2",
         "archive": "zip"
       },
       "linux": {
-        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
-        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
-        "sha256_source": "local-file",
-        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "url": "https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-linux-x64.zip",
+        "sha256": "3424bce647e3fcec72ebb4b3f2e5d2405501b64068cc3afb2244ae5fbc8c45e6",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/LukeFZ/Il2CppInspectorRedux/releases/tags/2026.2",
         "archive": "zip"
       },
       "macos": {
-        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
-        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
-        "sha256_source": "local-file",
-        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "url": "https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-osx-x64.zip",
+        "sha256": "112ae6fa947c6c1b0d05cb5ff54bd56e8e1c8a9ba9a06374ca1e6f8d90aa23b4",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/LukeFZ/Il2CppInspectorRedux/releases/tags/2026.2",
         "archive": "zip"
       },
-      "post": "il2cppdumper-config"
+      "linux-arm64": {
+        "url": "https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-linux-arm64.zip",
+        "sha256": "f573be7ad64e28d7a68deeac1d4a270e3f857ad8364973ff626ebb6779282558",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/LukeFZ/Il2CppInspectorRedux/releases/tags/2026.2",
+        "archive": "zip"
+      },
+      "macos-arm64": {
+        "url": "https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-osx-arm64.zip",
+        "sha256": "ae533cbb14728f418b3792be533d5273b9414cf5a0d10293b3f02edb2f8993e3",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/LukeFZ/Il2CppInspectorRedux/releases/tags/2026.2",
+        "archive": "zip"
+      },
+      "post": "exec-bits",
+      "exec": [
+        "Il2CppInspector"
+      ]
     },
     {
       "id": "ghidra-natives",
@@ -308,12 +331,16 @@
     },
     {
       "id": "dotnet",
-      "version": "8.0+ runtime (manual hint pins 8.0.34)",
+      "version": "10.0+ runtime (manual hint pins 10.0.15)",
       "folder": null,
       "required": true,
       "post": "none",
       "detect": [],
       "detect_command": "dotnet",
+      "min_runtime": {
+        "name": "Microsoft.NETCore.App",
+        "major": 10
+      },
       "detect_extra": {
         "windows": [
           "{root}/dotnet/dotnet.exe",
@@ -334,9 +361,9 @@
         ]
       },
       "manual": {
-        "windows": "stop: hand to the user \u2014 in PowerShell, no admin: download https://dot.net/v1/dotnet-install.ps1, then run: powershell -NoProfile -ExecutionPolicy Bypass -File dotnet-install.ps1 -Runtime dotnet -Version 8.0.34 -InstallDir \"{root}/dotnet\" -NoPath ; then re-run ensure_tools.py",
-        "linux": "stop: hand to the user \u2014 no root needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 8.0.34 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py",
-        "macos": "stop: hand to the user \u2014 no admin needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 8.0.34 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py"
+        "windows": "stop: hand to the user \u2014 in PowerShell, no admin: download https://dot.net/v1/dotnet-install.ps1, then run: powershell -NoProfile -ExecutionPolicy Bypass -File dotnet-install.ps1 -Runtime dotnet -Version 10.0.15 -InstallDir \"{root}/dotnet\" -NoPath ; then re-run ensure_tools.py",
+        "linux": "stop: hand to the user \u2014 no root needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 10.0.15 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py",
+        "macos": "stop: hand to the user \u2014 no admin needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 10.0.15 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py"
       }
     },
     {

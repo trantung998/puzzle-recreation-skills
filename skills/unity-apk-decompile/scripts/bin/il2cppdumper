@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-export DOTNET_ROLL_FORWARD=LatestMajor
-exec dotnet "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}/Il2CppDumper-6.7.46/Il2CppDumper.dll" "$@"

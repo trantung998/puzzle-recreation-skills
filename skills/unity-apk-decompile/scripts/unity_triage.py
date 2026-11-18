@@ -137,9 +137,9 @@ def main() -> int:
         elif r["metadata"]["encrypted_or_obfuscated"]:
             r["route"] = "metadata encrypted: find decryption (Frida dump after load) before any dumper"
         elif best.get("bits") == 64:
-            r["route"] = "IL2CPP arm64: REA inspect-il2cpp-metadata --binary (names+addresses) or Il2CppDumper -> targeted Ghidra"
+            r["route"] = "IL2CPP arm64: REA inspect-il2cpp-metadata --binary (names+addresses) or Il2CppInspectorRedux -> targeted Ghidra"
         else:
-            r["route"] = "IL2CPP armv7 only: Il2CppDumper -> targeted Ghidra (REA cannot link 32-bit binaries); try to obtain an arm64 split of the SAME version"
+            r["route"] = "IL2CPP armv7 only: Il2CppInspectorRedux -> targeted Ghidra (REA cannot link 32-bit binaries); try to obtain an arm64 split of the SAME version"
     elif asm_csharp:
         r["backend"] = "Mono"
         r["route"] = "Mono: Assembly-CSharp.dll is real IL -> ilspycmd/dnSpy gives near-source C#; no Ghidra needed"

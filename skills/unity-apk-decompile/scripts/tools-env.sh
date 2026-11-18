@@ -59,13 +59,19 @@ if [ -f "$UNITY_DECOMPILE_TOOLS/dotnet/dotnet$_DECOMPILE_EXE" ]; then
   export PATH="$UNITY_DECOMPILE_TOOLS/dotnet:$PATH"
   export DOTNET_ROOT
   DOTNET_ROOT=$(_decompile_native "$UNITY_DECOMPILE_TOOLS/dotnet")
+elif [ -z "${DOTNET_ROOT:-}" ] && _dn=$(command -v dotnet 2>/dev/null); then
+  # Native apphosts (Il2CppInspector) ignore PATH; point them at the dotnet that PATH finds.
+  _dn=$(readlink -f "$_dn" 2>/dev/null || printf '%s' "$_dn")
+  export DOTNET_ROOT
+  DOTNET_ROOT=$(_decompile_native "$(dirname "$_dn")")
 fi
+unset _dn
 export JAVA_HOME
 JAVA_HOME=$(_decompile_native "$_DECOMPILE_JDK")
 export GHIDRA_INSTALL_DIR="$UNITY_DECOMPILE_TOOLS/ghidra-12.2"
 export ANALYZE_HEADLESS="$GHIDRA_INSTALL_DIR/support/analyzeHeadless"
 export GHIDRA_HEADLESS_MAXMEM=4G
-export IL2CPPDUMPER_DIR="$UNITY_DECOMPILE_TOOLS/Il2CppDumper-6.7.46"
+export IL2CPPINSPECTOR_DIR="$UNITY_DECOMPILE_TOOLS/Il2CppInspectorRedux-2026.2"
 export ASSETRIPPER
 ASSETRIPPER=$(_decompile_native "$UNITY_DECOMPILE_TOOLS/AssetRipper_2.0.0/AssetRipper.GUI.Free$_DECOMPILE_EXE")
 export DOTNET_ROLL_FORWARD=LatestMajor

@@ -114,7 +114,7 @@ Tools, before every phase that uses decompile tools (`decompile`, `level-catalog
   in that shell only.
 - Exit 3 means a required tool is `failed` or `manual`. That is a stop (section 6): the
   `detail` is the exact unblock step, handed to the user. A `manual` detail starts with
-  `stop: hand to the user —` and names a pinned, user-scope, no-admin install (.NET 8.0.34
+  `stop: hand to the user —` and names a pinned, user-scope, no-admin install (.NET 10.0.15
   through `dotnet-install.ps1`/`dotnet-install.sh` into `<root>/dotnet`; PortableGit 2.56.1
   with its SHA-256 into `<root>/PortableGit`). Never run it yourself (spec §7.1). On macOS
   and Linux the system Git is acceptable; `git-bash` is checked on Windows only.

@@ -17,7 +17,8 @@ game-design intuition, and never an existing reconstruction.
 - Use: after `unity-apk-decompile` output exists, to fill `evidence/` in the work directory.
 - Do not use for: running the decompile (`unity-apk-decompile`), building in Unity
   (`puzzle-gameplay-build`), or verification (`puzzle-gameplay-verification`).
-- If `unity-apk-decompile` is not installed: run Il2CppDumper (or ILSpy for Mono),
+- If `unity-apk-decompile` is not installed: run Il2CppInspectorRedux (Il2CppDumper cannot
+  read Unity 6 metadata v39) or ILSpy for Mono,
   AssetRipper and targeted headless Ghidra yourself. Record tool versions in `decisions.md`.
 
 ## Inputs from the work directory

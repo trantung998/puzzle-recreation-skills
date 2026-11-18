@@ -33,6 +33,7 @@ export GHIDRA_HEADLESS_MAXMEM=${GHIDRA_HEADLESS_MAXMEM:-16G}   # default 2G hang
 
 # Pick processor from the ELF header (class byte 5, machine at 0x12).
 read -r CLS MACH < <(python3 -I -c 'import sys,struct;h=open(sys.argv[1],"rb").read(20);print(h[4],struct.unpack_from("<H",h,18)[0])' "$SO")
+MACH=${MACH%$'\r'}   # Windows python prints CRLF
 case "$CLS/$MACH" in
   1/40)  PROC=ARM:LE:32:v8 ;;           # armeabi-v7a (v8 superset decodes v7 fine)
   2/183) PROC=AARCH64:LE:64:v8A ;;      # arm64-v8a

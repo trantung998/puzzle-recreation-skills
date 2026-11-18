@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Pick IL2CPP methods from Il2CppDumper's script.json and write Ghidra inputs.
+"""Pick IL2CPP methods from script.json (Il2CppDumper layout, written by run_il2cppinspector.sh)
+and write Ghidra inputs.
 
 Usage:
   python3 -I select_targets.py <il2cpp-out-dir> <work-dir> PATTERN [PATTERN ...]

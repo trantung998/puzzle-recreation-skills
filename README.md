@@ -66,12 +66,13 @@ handoff) and can be resumed by invoking the skill again.
 - Decompile phase: Windows (Git Bash), macOS (stock `/bin/bash`, Intel or Apple Silicon) or
   Linux. `ensure_tools.py` picks the pinned archive for the OS and CPU (`macos-arm64` on
   Apple Silicon).
-- Missing decompile tools (JDK, Ghidra, Il2CppDumper, AssetRipper, ILSpy, Python venv) are
+- Missing decompile tools (JDK, Ghidra, Il2CppInspectorRedux, AssetRipper, ILSpy, Python venv) are
   installed automatically with pinned versions and SHA-256 checks, into
   `$UNITY_DECOMPILE_TOOLS`, else `~/.cache/puzzle-recreation/tools`.
-  .NET runtime (and Git Bash on Windows) are not auto-installed: the run stops with an exact,
-  pinned, no-admin command for you to run. On macOS an existing `dotnet` (official installer in
-  `/usr/local/share/dotnet` or Homebrew) is detected.
+  The .NET 10 runtime (and Git Bash on Windows) are not auto-installed: the run stops with an exact,
+  pinned, no-admin command for you to run. An existing `dotnet` (on macOS: official installer in
+  `/usr/local/share/dotnet` or Homebrew) is detected and counts only if it has
+  `Microsoft.NETCore.App` 10 or newer.
 - macOS extra: Xcode Command Line Tools (`xcode-select --install`) — Ghidra's release has no
   macOS decompiler binary, so `ensure_tools.py` builds it locally (~40 s). For the optional
   `level-decoders` tool run `ensure_tools.py` with Python 3.10+ (Homebrew or python.org).

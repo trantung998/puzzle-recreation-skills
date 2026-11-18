@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ENVSH="$HERE/../scripts/tools-env.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-pass=0; fails=""; total=8
+pass=0; fails=""; total=10
 ok() { pass=$((pass+1)); }
 bad() { fails="$fails $1"; }
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1;; *) WIN=0;; esac
@@ -57,6 +57,17 @@ printf '#!/usr/bin/env bash\necho fake-dotnet\n' > "$TMP/t8/dotnet/$dn"
 chmod +x "$TMP/t8/dotnet/$dn"
 out=$( (export UNITY_DECOMPILE_TOOLS="$TMP/t8"; source "$ENVSH" 2>/dev/null; echo "$DOTNET_ROOT|$(dotnet)") 2>/dev/null )
 case "$out" in */t8/dotnet\|fake-dotnet) ok;; *) bad case8;; esac
+
+# case9: Il2CppInspectorRedux folder is exported for run_il2cppinspector.sh
+out=$( (export UNITY_DECOMPILE_TOOLS="$TMP/t1"; source "$ENVSH" 2>/dev/null; echo "$IL2CPPINSPECTOR_DIR") )
+case "$out" in */t1/Il2CppInspectorRedux-2026.2) ok;; *) bad case9;; esac
+
+# case10: without <root>/dotnet, DOTNET_ROOT follows the dotnet on PATH (apphosts ignore PATH)
+mkdir -p "$TMP/t10/tools" "$TMP/t10/sdk"
+printf '#!/usr/bin/env bash\necho path-dotnet\n' > "$TMP/t10/sdk/$dn"
+chmod +x "$TMP/t10/sdk/$dn"
+out=$( (unset DOTNET_ROOT; export UNITY_DECOMPILE_TOOLS="$TMP/t10/tools" PATH="$TMP/t10/sdk:$PATH"; source "$ENVSH" 2>/dev/null; echo "$DOTNET_ROOT") )
+case "$out" in */t10/sdk) ok;; *) bad case10;; esac
 
 if [ $pass -eq $total ]; then echo "PASS $total/$total"; exit 0; fi
 echo "FAIL$fails"; exit 1
