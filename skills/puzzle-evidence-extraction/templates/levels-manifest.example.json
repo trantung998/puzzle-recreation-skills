@@ -1,0 +1,50 @@
+{
+  "_note": "Shape example for evidence/levels/manifest.json. Fictional game; replace every value. Hashes are SHA-256 hex of the raw object/file bytes and of the decoded bytes.",
+  "apk_sha256": "<SHA-256 of the APK/XAPK, equal to progress.json inputs.apk_sha256>",
+  "levels_requested": 3,
+  "order_source": "StageTable asset (path ID 912) serialized stages list order; cross-checked with decoded field stageNumber",
+  "selection_rule": "First 3 entries in StageTable order whose name is exactly Stage_NNN (no suffix) and whose mode field is 0",
+  "decoder": "python3 scripts/decode_probe.py <file> --out evidence/levels/<name>.json",
+  "levels": [
+    {
+      "index": 1,
+      "name": "Stage_001",
+      "source_file": "decompile/unpacked/base/assets/aa/Android/stages_assets_all.bundle",
+      "path_id": 7716042,
+      "container": "base.apk!assets/aa/Android/stages_assets_all.bundle!Assets/Game/Stages/Stage_001.bytes",
+      "encoding_chain": ["base64", "zlib", "json"],
+      "sha256_raw": "<sha256 of the TextAsset bytes>",
+      "sha256_decoded": "<sha256 of evidence/levels/Stage_001.json>",
+      "decoded_file": "evidence/levels/Stage_001.json",
+      "excluded_variants": []
+    },
+    {
+      "index": 2,
+      "name": "Stage_002",
+      "source_file": "decompile/unpacked/base/assets/aa/Android/stages_assets_all.bundle",
+      "path_id": 7716057,
+      "container": "base.apk!assets/aa/Android/stages_assets_all.bundle!Assets/Game/Stages/Stage_002.bytes",
+      "encoding_chain": ["base64", "zlib", "json"],
+      "sha256_raw": "<sha256 of the TextAsset bytes>",
+      "sha256_decoded": "<sha256 of evidence/levels/Stage_002.json>",
+      "decoded_file": "evidence/levels/Stage_002.json",
+      "excluded_variants": [
+        {"name": "Stage_002_hard", "path_id": 7716063, "reason": "Suffix _hard beyond the exact base name and mode field = 2; difficulty variant, out of scope"}
+      ]
+    },
+    {
+      "index": 3,
+      "name": "Stage_003",
+      "source_file": "decompile/unpacked/base/assets/StreamingAssets/stages/Stage_003.json",
+      "path_id": null,
+      "container": "base.apk!assets/StreamingAssets/stages/Stage_003.json",
+      "encoding_chain": ["json"],
+      "sha256_raw": "<sha256 of the file bytes>",
+      "sha256_decoded": "<sha256 of evidence/levels/Stage_003.json>",
+      "decoded_file": "evidence/levels/Stage_003.json",
+      "excluded_variants": [
+        {"name": "Stage_003_v2", "path_id": null, "reason": "Suffix _v2; selected only through a remote-config experiment key; A/B variant, out of scope"}
+      ]
+    }
+  ]
+}

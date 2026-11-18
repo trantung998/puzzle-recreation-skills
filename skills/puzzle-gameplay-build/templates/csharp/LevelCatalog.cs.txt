@@ -1,0 +1,97 @@
+// TEMPLATE — unverified; adapt and verify in the target project.
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace __GAME_NAMESPACE__
+{
+    /// <summary>
+    /// Original level files in manifest "index" order (sorted by index, not array order; indices must
+    /// run 1..N without gaps). Reads Resources/__GAME_SLUG__/Levels/:
+    /// "_manifest.json" is a byte copy of evidence/levels/manifest.json, and "&lt;name&gt;.json"
+    /// is a byte copy of evidence/levels/&lt;name&gt;.json for each manifest entry.
+    /// Index is 0-based: catalog index i is the manifest entry with "index" = i + 1.
+    /// The catalog never parses level contents; the per-game data classes do.
+    /// </summary>
+    public sealed class LevelCatalog
+    {
+        public const string ResourceFolder = "__GAME_SLUG__/Levels/";
+        public const string ManifestResource = ResourceFolder + "_manifest";
+
+        readonly string[] names;
+
+        public LevelCatalog()
+        {
+            var manifestAsset = Resources.Load<TextAsset>(ManifestResource);
+            if (manifestAsset == null)
+                throw new InvalidOperationException(
+                    $"Missing Resources/{ManifestResource}.json. Copy evidence/levels/manifest.json there unchanged.");
+
+            var manifest = JsonUtility.FromJson<ManifestFile>(manifestAsset.text);
+            if (manifest == null || manifest.levels == null || manifest.levels.Length == 0)
+                throw new InvalidOperationException("The level manifest has no \"levels\" entries.");
+
+            var entries = new List<ManifestEntry>(manifest.levels);
+            entries.Sort((a, b) => a.index.CompareTo(b.index));
+
+            names = new string[entries.Count];
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry.index != i + 1)
+                    throw new InvalidOperationException(
+                        $"Manifest indices must run 1..{entries.Count} without gaps; found {entry.index} at position {i + 1}.");
+                if (string.IsNullOrEmpty(entry.name) || !seen.Add(entry.name))
+                    throw new InvalidOperationException($"Manifest entry {entry.index} has an empty or duplicate name.");
+                names[i] = entry.name;
+            }
+
+            if (manifest.levels_requested > 0 && manifest.levels_requested != names.Length)
+                throw new InvalidOperationException(
+                    $"Manifest lists {names.Length} levels but levels_requested is {manifest.levels_requested}.");
+        }
+
+        public int Count => names.Length;
+
+        /// <summary>Original level name (manifest "name"), for example "Stage_001".</summary>
+        public string NameAt(int index)
+        {
+            CheckIndex(index);
+            return names[index];
+        }
+
+        /// <summary>The original decoded level file, unparsed. Throws when the file is missing.</summary>
+        public TextAsset LoadRaw(int index)
+        {
+            CheckIndex(index);
+            var path = ResourceFolder + names[index];
+            var asset = Resources.Load<TextAsset>(path);
+            if (asset == null)
+                throw new InvalidOperationException(
+                    $"Missing Resources/{path}.json. Copy evidence/levels/{names[index]}.json there unchanged.");
+            return asset;
+        }
+
+        void CheckIndex(int index)
+        {
+            if (index < 0 || index >= names.Length)
+                throw new ArgumentOutOfRangeException(nameof(index), index, $"Catalog has {names.Length} levels.");
+        }
+
+        // Only the fields the catalog needs; JsonUtility ignores the other manifest fields.
+        [Serializable]
+        sealed class ManifestFile
+        {
+            public int levels_requested;
+            public ManifestEntry[] levels;
+        }
+
+        [Serializable]
+        sealed class ManifestEntry
+        {
+            public int index;
+            public string name;
+        }
+    }
+}

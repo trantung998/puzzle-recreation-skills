@@ -1,0 +1,340 @@
+{
+  "schema": 1,
+  "tools": [
+    {
+      "id": "python-venv",
+      "version": "venv (PyYAML==6.0.3 pinned for new installs; detection checks the interpreter only)",
+      "folder": "decompile-python",
+      "required": true,
+      "detect": {
+        "windows": [
+          "Scripts/python.exe"
+        ],
+        "linux": [
+          "bin/python"
+        ],
+        "macos": [
+          "bin/python"
+        ]
+      },
+      "pip": [
+        "PyYAML==6.0.3"
+      ],
+      "post": "venv-pyyaml"
+    },
+    {
+      "id": "level-decoders",
+      "version": "UnityPy 1.25.4, brotli 1.2.1 (venv)",
+      "folder": "level-decoders-venv",
+      "required": false,
+      "detect": {
+        "windows": [
+          "Scripts/python.exe",
+          "Lib/site-packages/UnityPy/__init__.py",
+          "Lib/site-packages/unitypy-1.25.4.dist-info/METADATA",
+          "Lib/site-packages/brotli.py",
+          "Lib/site-packages/brotli-1.2.1.dist-info/METADATA"
+        ],
+        "linux": [
+          "bin/python",
+          "lib/python3*/site-packages/UnityPy/__init__.py",
+          "lib/python3*/site-packages/unitypy-1.25.4.dist-info/METADATA",
+          "lib/python3*/site-packages/brotli.py",
+          "lib/python3*/site-packages/brotli-1.2.1.dist-info/METADATA"
+        ],
+        "macos": [
+          "bin/python",
+          "lib/python3*/site-packages/UnityPy/__init__.py",
+          "lib/python3*/site-packages/unitypy-1.25.4.dist-info/METADATA",
+          "lib/python3*/site-packages/brotli.py",
+          "lib/python3*/site-packages/brotli-1.2.1.dist-info/METADATA"
+        ]
+      },
+      "pip": [
+        "UnityPy==1.25.4",
+        "brotli==1.2.1",
+        "archspec==0.2.7",
+        "astc-encoder-py==0.1.12",
+        "attrs==26.1.0",
+        "etcpak==0.9.15",
+        "fmod-toolkit==0.1.3",
+        "fsspec==2026.9.0",
+        "lz4==4.4.5",
+        "pillow==12.3.0",
+        "pyfmodex==0.7.2",
+        "texture2ddecoder==1.0.6",
+        "tpk-ar==0.2.4",
+        "typing-extensions==4.16.0"
+      ],
+      "post": "venv"
+    },
+    {
+      "id": "jdk",
+      "version": "Temurin 25.0.5+8",
+      "folder": "jdk-25",
+      "required": true,
+      "detect": {
+        "windows": [
+          "bin/java.exe"
+        ],
+        "linux": [
+          "bin/java"
+        ],
+        "macos": [
+          "Contents/Home/bin/java"
+        ]
+      },
+      "windows": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip",
+        "sha256": "636bdc13dc649ddc7d5921c5c7d23cca6e44fd19d662b45cc9c02135a6c96c42",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip.sha256.txt",
+        "archive": "zip"
+      },
+      "linux": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_linux_hotspot_25.0.5_8.tar.gz",
+        "sha256": "68982529869257d0ee6b824ec5aa270ff8b118bb438670da0b97ebdab178d7fb",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_linux_hotspot_25.0.5_8.tar.gz.sha256.txt",
+        "archive": "tar.gz"
+      },
+      "macos": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_mac_hotspot_25.0.5_8.tar.gz",
+        "sha256": "32cd4d2151c91aa00d0fc911edfd05245ed40fa6b1aa894d5f35c928cd67a59d",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_mac_hotspot_25.0.5_8.tar.gz.sha256.txt",
+        "archive": "tar.gz"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.5_8.tar.gz",
+        "sha256": "bb5b2ded252f21c6090cf780b0a408ad0d83bbb557e702955643557f13231880",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.5_8.tar.gz.sha256.txt",
+        "archive": "tar.gz"
+      },
+      "macos-arm64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_aarch64_mac_hotspot_25.0.5_8.tar.gz",
+        "sha256": "36dc14d797aaff6d89aab302cd053fdba6207dfdcf772052fa7b023a94b0e857",
+        "sha256_source": "publisher-checksum-file",
+        "sha256_ref": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_aarch64_mac_hotspot_25.0.5_8.tar.gz.sha256.txt",
+        "archive": "tar.gz"
+      },
+      "post": "none"
+    },
+    {
+      "id": "ghidra",
+      "version": "12.2",
+      "folder": "ghidra-12.2",
+      "required": true,
+      "neutral": true,
+      "detect": {
+        "windows": [
+          "support/analyzeHeadless",
+          "support/analyzeHeadless.bat"
+        ],
+        "linux": [
+          "support/analyzeHeadless"
+        ],
+        "macos": [
+          "support/analyzeHeadless"
+        ]
+      },
+      "windows": {
+        "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip",
+        "sha256": "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_12.2_build",
+        "archive": "zip"
+      },
+      "linux": {
+        "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip",
+        "sha256": "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_12.2_build",
+        "archive": "zip"
+      },
+      "macos": {
+        "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip",
+        "sha256": "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/tags/Ghidra_12.2_build",
+        "archive": "zip"
+      },
+      "post": "none"
+    },
+    {
+      "id": "il2cppdumper",
+      "version": "6.7.46",
+      "folder": "Il2CppDumper-6.7.46",
+      "required": true,
+      "neutral": true,
+      "detect": [
+        "Il2CppDumper.dll",
+        "config.json"
+      ],
+      "windows": {
+        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
+        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "archive": "zip"
+      },
+      "linux": {
+        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
+        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "archive": "zip"
+      },
+      "macos": {
+        "url": "https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net6-v6.7.46.zip",
+        "sha256": "db9bbbc538e33abfb057c7757ae5d6c1f16a05fdc0d13af8a5a67ea31faaba0c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset Il2CppDumper-net6-v6.7.46.zip",
+        "archive": "zip"
+      },
+      "post": "il2cppdumper-config"
+    },
+    {
+      "id": "assetripper",
+      "version": "2.0.0",
+      "folder": "AssetRipper_2.0.0",
+      "required": true,
+      "detect": {
+        "windows": [
+          "AssetRipper.GUI.Free.exe"
+        ],
+        "linux": [
+          "AssetRipper.GUI.Free"
+        ],
+        "macos": [
+          "AssetRipper.GUI.Free"
+        ]
+      },
+      "windows": {
+        "url": "https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_win_x64.zip",
+        "sha256": "9a7ef0e7c5c3ea5b90b4e6d855e2d98d5f7ec8c3f9e26fccbc194c6a7b01baf7",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/AssetRipper/AssetRipper/releases/tags/2.0.0",
+        "archive": "zip"
+      },
+      "linux": {
+        "url": "https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_linux_x64.tar.xz",
+        "sha256": "6f5d4352d36795b944243eb3ec790ec37dbca6d6756e52605bc8616e042d384e",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/AssetRipper/AssetRipper/releases/tags/2.0.0",
+        "archive": "tar.xz"
+      },
+      "macos": {
+        "url": "https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_mac_x64.tar.xz",
+        "sha256": "1b3836f135d16845cb57595fadff5739cbb86d28caaf621005b4301dba9b5a56",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/AssetRipper/AssetRipper/releases/tags/2.0.0",
+        "archive": "tar.xz"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_linux_arm64.tar.xz",
+        "sha256": "8031752621d7fb27addab6108bad8bfbd43546bbb07b36912a987dfb4029c914",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/AssetRipper/AssetRipper/releases/tags/2.0.0",
+        "archive": "tar.xz"
+      },
+      "macos-arm64": {
+        "url": "https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_mac_arm64.tar.xz",
+        "sha256": "237a6da404bf089c5e5c71a5a9a698c2ea580872292dfa5ce21e25fd1dbe9045",
+        "sha256_source": "publisher-api",
+        "sha256_ref": "https://api.github.com/repos/AssetRipper/AssetRipper/releases/tags/2.0.0",
+        "archive": "tar.xz"
+      },
+      "post": "none"
+    },
+    {
+      "id": "ilspycmd",
+      "version": "9.1.0.7988",
+      "folder": "ilspycmd-9.1.0",
+      "required": true,
+      "neutral": true,
+      "detect": [
+        "tools/net8.0/any/ilspycmd.dll"
+      ],
+      "windows": {
+        "url": "https://api.nuget.org/v3-flatcontainer/ilspycmd/9.1.0.7988/ilspycmd.9.1.0.7988.nupkg",
+        "sha256": "2b5058f5ccc164c33b7aabf1a5eb0cf3d3a6af6c145aaf58efd3ed891443af7c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset ilspycmd.9.1.0.7988.nupkg",
+        "archive": "nupkg"
+      },
+      "linux": {
+        "url": "https://api.nuget.org/v3-flatcontainer/ilspycmd/9.1.0.7988/ilspycmd.9.1.0.7988.nupkg",
+        "sha256": "2b5058f5ccc164c33b7aabf1a5eb0cf3d3a6af6c145aaf58efd3ed891443af7c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset ilspycmd.9.1.0.7988.nupkg",
+        "archive": "nupkg"
+      },
+      "macos": {
+        "url": "https://api.nuget.org/v3-flatcontainer/ilspycmd/9.1.0.7988/ilspycmd.9.1.0.7988.nupkg",
+        "sha256": "2b5058f5ccc164c33b7aabf1a5eb0cf3d3a6af6c145aaf58efd3ed891443af7c",
+        "sha256_source": "local-file",
+        "sha256_ref": "computed locally from the release asset ilspycmd.9.1.0.7988.nupkg",
+        "archive": "nupkg"
+      },
+      "post": "none"
+    },
+    {
+      "id": "dotnet",
+      "version": "8.0+ runtime (manual hint pins 8.0.34)",
+      "folder": null,
+      "required": true,
+      "post": "none",
+      "detect": [],
+      "detect_command": "dotnet",
+      "detect_extra": {
+        "windows": [
+          "{root}/dotnet/dotnet.exe",
+          "%ProgramFiles%/dotnet/dotnet.exe",
+          "%LOCALAPPDATA%/Microsoft/dotnet/dotnet.exe"
+        ],
+        "linux": [
+          "{root}/dotnet/dotnet",
+          "/usr/share/dotnet/dotnet",
+          "/usr/lib/dotnet/dotnet",
+          "~/.dotnet/dotnet"
+        ],
+        "macos": [
+          "{root}/dotnet/dotnet",
+          "/usr/local/share/dotnet/dotnet",
+          "/opt/homebrew/bin/dotnet",
+          "~/.dotnet/dotnet"
+        ]
+      },
+      "manual": {
+        "windows": "stop: hand to the user \u2014 in PowerShell, no admin: download https://dot.net/v1/dotnet-install.ps1, then run: powershell -NoProfile -ExecutionPolicy Bypass -File dotnet-install.ps1 -Runtime dotnet -Version 8.0.34 -InstallDir \"{root}/dotnet\" -NoPath ; then re-run ensure_tools.py",
+        "linux": "stop: hand to the user \u2014 no root needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 8.0.34 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py",
+        "macos": "stop: hand to the user \u2014 no admin needed: download https://dot.net/v1/dotnet-install.sh, then run: bash dotnet-install.sh --runtime dotnet --version 8.0.34 --install-dir \"{root}/dotnet\" --no-path ; then re-run ensure_tools.py"
+      }
+    },
+    {
+      "id": "git-bash",
+      "version": "Git for Windows (manual hint pins PortableGit 2.56.1)",
+      "folder": null,
+      "required": true,
+      "post": "none",
+      "only": [
+        "windows"
+      ],
+      "detect": [],
+      "detect_command": "bash",
+      "detect_extra": {
+        "windows": [
+          "{root}/PortableGit/bin/bash.exe",
+          "%ProgramFiles%/Git/bin/bash.exe",
+          "%ProgramFiles(x86)%/Git/bin/bash.exe",
+          "%LOCALAPPDATA%/Programs/Git/bin/bash.exe"
+        ]
+      },
+      "manual": {
+        "windows": "stop: hand to the user \u2014 no admin: download PortableGit 2.56.1 from https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/PortableGit-2.56.1-64-bit.7z.exe and check it: certutil -hashfile PortableGit-2.56.1-64-bit.7z.exe SHA256 must print 9dd04a608ceb5f6ab32a73709e0ecb159d211da71b697c45ff81f6dd0c6b49c7 (SHA-256 from the official v2.56.1.windows.1 release notes); then run: PortableGit-2.56.1-64-bit.7z.exe -o\"{root}/PortableGit\" -y ; then re-run ensure_tools.py"
+      }
+    }
+  ]
+}

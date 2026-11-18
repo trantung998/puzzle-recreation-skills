@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec dotnet "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}/ilspycmd-9.1.0/tools/net8.0/any/ilspycmd.dll" "$@"

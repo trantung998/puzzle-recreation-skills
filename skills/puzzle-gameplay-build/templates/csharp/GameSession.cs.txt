@@ -1,0 +1,219 @@
+// TEMPLATE — unverified; adapt and verify in the target project.
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace __GAME_NAMESPACE__
+{
+    /// <summary>
+    /// Level lifecycle used by LevelSwitcherOverlay and the verification drivers.
+    /// Indices are 0-based LevelCatalog indices (manifest "index" minus 1). Show index + 1 to players
+    /// and use it in check ids ("level-" + (index + 1)).
+    /// A Load, Retry, Next or Previous requested while a level is loading is queued and runs after
+    /// that load finishes.
+    /// </summary>
+    public interface IGameSession
+    {
+        /// <summary>0-based catalog index of the loaded level; -1 before the first Load.</summary>
+        int CurrentLevel { get; }
+
+        /// <summary>Raised after a level is fully built, with its 0-based index.</summary>
+        event Action<int> LevelLoaded;
+
+        /// <summary>
+        /// Raised at most once per load, when the model reports a win and the views have settled.
+        /// Raised after Load has returned (from Update or a coroutine), never inside BuildLevel.
+        /// </summary>
+        event Action Won;
+
+        /// <summary>Tears down the current level (views, pending input, per-level inventory), then builds the level.</summary>
+        void Load(int index);
+
+        /// <summary>Loads the current level again from its original data.</summary>
+        void Retry();
+
+        /// <summary>Loads the next level; after the last level it loads index 0.</summary>
+        void Next();
+
+        /// <summary>Loads the previous level; before index 0 it loads the last level.</summary>
+        void Previous();
+    }
+
+    /// <summary>
+    /// Orchestration skeleton. Derive one sealed class per game, in its own file with a matching name
+    /// (for example __GAME_NAMESPACE__Game.cs). The subclass owns the model instance, the views and input
+    /// acceptance. Rules stay in the model; this class never decides a rule.
+    /// </summary>
+    public abstract class GameSession : MonoBehaviour, IGameSession
+    {
+        [SerializeField] int firstLevel = 0; // 0-based catalog index loaded by Start
+
+        readonly Queue<Action> queuedRequests = new Queue<Action>();
+        LevelCatalog catalog;
+        bool loading;
+        bool wonRaised;
+
+        /// <summary>Created on first use, so a subclass Awake that skips base.Awake() cannot leave it null.</summary>
+        public LevelCatalog Catalog => catalog ??= new LevelCatalog();
+        public int CurrentLevel { get; private set; } = -1;
+        public bool HasWon => wonRaised;
+
+        /// <summary>
+        /// Incremented by every Load. A coroutine, tween callback or queued action captures the value
+        /// when it starts and does nothing if the value has changed, so work from a previous level
+        /// cannot touch the new one.
+        /// </summary>
+        protected int LoadGeneration { get; private set; }
+
+        public event Action<int> LevelLoaded;
+        public event Action Won;
+
+        /// <summary>Touches the catalog early so manifest errors surface at startup.</summary>
+        protected virtual void Awake()
+        {
+            _ = Catalog;
+        }
+
+        protected virtual void Start()
+        {
+            Load(Mathf.Clamp(firstLevel, 0, Catalog.Count - 1));
+        }
+
+        public void Load(int index)
+        {
+            if (index < 0 || index >= Catalog.Count)
+                throw new ArgumentOutOfRangeException(nameof(index), index, $"Catalog has {Catalog.Count} levels.");
+            Request(() => LoadNow(index));
+        }
+
+        // Next, Previous and Retry are resolved when they run, relative to the level loaded by then.
+        public void Retry() => Request(() => LoadNow(CurrentLevel < 0 ? 0 : CurrentLevel));
+
+        public void Next() => Request(() => LoadNow(CurrentLevel < 0 ? 0 : (CurrentLevel + 1) % Catalog.Count));
+
+        public void Previous() => Request(() => LoadNow(CurrentLevel <= 0 ? Catalog.Count - 1 : CurrentLevel - 1));
+
+        void Request(Action load)
+        {
+            if (loading)
+            {
+                queuedRequests.Enqueue(load);
+                return;
+            }
+            load();
+            while (queuedRequests.Count > 0 && !loading)
+                queuedRequests.Dequeue()();
+        }
+
+        void LoadNow(int index)
+        {
+            int previousLevel = CurrentLevel;
+            bool built = false;
+            loading = true;
+            try
+            {
+                LoadGeneration++;
+                // Also stops a coroutine of this component that called Load; it ends at its next yield.
+                StopAllCoroutines();
+                ClearPendingInput();
+                TearDownViews();
+                ResetLevelInventory();
+                ResetGlobalState();
+                wonRaised = false;
+                CurrentLevel = index;
+                BuildLevel(index, Catalog.LoadRaw(index));
+                built = true;
+                // Still loading: a handler that calls Load/Next/Previous/Retry is queued, and the
+                // queue drains in Request after this dispatch has finished.
+                LevelLoaded?.Invoke(index);
+            }
+            catch
+            {
+                // A failed build rolls CurrentLevel back; the previous level's views are already gone,
+                // so the caller must Load again. Requests queued during this load are dropped.
+                if (!built)
+                    CurrentLevel = previousLevel;
+                queuedRequests.Clear();
+                throw;
+            }
+            finally
+            {
+                loading = false;
+            }
+        }
+
+        /// <summary>
+        /// Call when the model reports a win and every animation that the original waits for has
+        /// finished, after Load has returned (from Update or a coroutine), not from BuildLevel.
+        /// Raises Won once per load.
+        /// </summary>
+        protected void NotifyWon()
+        {
+            if (wonRaised)
+                return;
+            wonRaised = true;
+            Won?.Invoke();
+        }
+
+        /// <summary>Drop queued or buffered taps, held targets and reservations that were not yet committed.</summary>
+        protected abstract void ClearPendingInput();
+
+        /// <summary>
+        /// Remove every view of the current level. Stop coroutines and tweens that run on other
+        /// components. Deactivate objects before Destroy so raycasts and physics stop hitting them
+        /// in the same frame (Destroy completes at the end of the frame).
+        /// </summary>
+        protected abstract void TearDownViews();
+
+        /// <summary>Reset per-level inventory: boosters, counters, timers, selected tools.</summary>
+        protected abstract void ResetLevelInventory();
+
+        /// <summary>Parse the original data (original field names), create the model, then the views.</summary>
+        protected abstract void BuildLevel(int index, TextAsset raw);
+
+        /// <summary>Undo global state a level may change. Extend it when the game changes more.</summary>
+        protected virtual void ResetGlobalState()
+        {
+            Time.timeScale = 1f;
+        }
+
+        protected virtual void OnDestroy()
+        {
+            ResetGlobalState();
+        }
+    }
+
+    // Shape of the per-game subclass. Write it per game from references/architecture.md.
+    // Type names use __GAME_NAMESPACE__ (a valid C# identifier), not the raw slug.
+    //
+    // public sealed partial class __GAME_NAMESPACE__Game : GameSession
+    // {
+    //     __GAME_NAMESPACE__Model model;   // plain C#: rules, state, win/fail; no UnityEngine.Object
+    //     BoardView board;            // presentation only
+    //
+    //     protected override void Start()
+    //     {
+    //         base.Start();
+    //         LevelSwitcherOverlay.Create(this, Catalog);
+    //     }
+    //
+    //     protected override void BuildLevel(int index, TextAsset raw)
+    //     {
+    //         var data = __GAME_NAMESPACE__LevelData.Parse(raw.text);   // original field names kept
+    //         model = new __GAME_NAMESPACE__Model(data);
+    //         board = BoardView.Create(model, transform);
+    //         board.PieceTapped = OnPieceTapped;                    // input enters here, never in the view
+    //     }
+    //
+    //     void OnPieceTapped(int pieceId, int pointerId)
+    //     {
+    //         if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(pointerId))
+    //             return;   // pointer is over UI (HUD or switcher); in Input System callbacks use RaycastAll
+    //         /* acceptance per the recorded input decisions, then a model call */
+    //     }
+    //
+    //     protected override void ClearPendingInput() { /* queued taps, reservations */ }
+    //     protected override void TearDownViews() { if (board != null) board.Dispose(); board = null; }
+    //     protected override void ResetLevelInventory() { /* boosters for this level */ }
+    // }
+}

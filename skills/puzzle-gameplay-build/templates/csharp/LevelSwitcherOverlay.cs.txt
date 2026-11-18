@@ -1,0 +1,313 @@
+// TEMPLATE — unverified; adapt and verify in the target project.
+using System;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
+
+namespace __GAME_NAMESPACE__
+{
+    /// <summary>
+    /// Runtime uGUI level switcher: current level label, previous/next (wrapping), retry, and a
+    /// paged level grid (20 per page). Built entirely in code inside the safe area.
+    /// It is a recreation tool, not original game UI: hide it with SetVisible(false) before
+    /// visual comparison captures. Object names are stable so pointer drivers can find them.
+    /// </summary>
+    public sealed class LevelSwitcherOverlay : MonoBehaviour
+    {
+        public const int LevelsPerPage = 20;
+        const int GridColumns = 5;
+        const float BarHeight = 120f;
+        static readonly Vector2 ReferenceResolution = new Vector2(1080f, 1920f);
+        static readonly Color BarColor = new Color(0f, 0f, 0f, 0.55f);
+        static readonly Color PanelColor = new Color(0f, 0f, 0f, 0.85f);
+        static readonly Color ButtonColor = new Color(0.22f, 0.22f, 0.26f, 1f);
+        static readonly Color CurrentColor = new Color(0.95f, 0.65f, 0.15f, 1f);
+
+        IGameSession session;
+        LevelCatalog catalog;
+        Font font;
+        RectTransform safeArea;
+        GameObject grid;
+        Text levelLabel;
+        Text pageLabel;
+        readonly Button[] levelButtons = new Button[LevelsPerPage];
+        readonly Text[] levelButtonLabels = new Text[LevelsPerPage];
+        int page;
+        Rect appliedSafeArea;
+        Vector2Int appliedScreen;
+
+        public Button PreviousButton { get; private set; }
+        public Button NextButton { get; private set; }
+        public Button RetryButton { get; private set; }
+        public Button OpenGridButton { get; private set; }
+        public Button CloseGridButton { get; private set; }
+        public Button PreviousPageButton { get; private set; }
+        public Button NextPageButton { get; private set; }
+        public bool GridOpen => grid != null && grid.activeInHierarchy;
+        public int Page => page;
+        public int PageCount => (catalog.Count + LevelsPerPage - 1) / LevelsPerPage;
+
+        /// <summary>
+        /// Creates the overlay on a new root GameObject. Creates an EventSystem if no active one exists.
+        /// With the Input System active, swaps a StandaloneInputModule for InputSystemUIInputModule
+        /// at runtime only (never saved).
+        /// </summary>
+        public static LevelSwitcherOverlay Create(IGameSession session, LevelCatalog catalog, int sortingOrder = 1000)
+        {
+            if (session == null)
+                throw new ArgumentNullException(nameof(session));
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            var root = new GameObject("LevelSwitcherOverlay", typeof(RectTransform));
+            var overlay = root.AddComponent<LevelSwitcherOverlay>();
+            overlay.Build(session, catalog, sortingOrder);
+            return overlay;
+        }
+
+        /// <summary>Shows or hides the whole overlay, for example around screenshot captures.</summary>
+        public void SetVisible(bool visible) => safeArea.gameObject.SetActive(visible);
+
+        public void OpenGrid()
+        {
+            grid.SetActive(true);
+            ShowPage(session.CurrentLevel < 0 ? 0 : session.CurrentLevel / LevelsPerPage);
+        }
+
+        public void CloseGrid() => grid.SetActive(false);
+
+        /// <summary>Shows the page holding the given 0-based level index; pages wrap at both ends.</summary>
+        public void ShowPage(int pageIndex)
+        {
+            int count = PageCount;
+            page = ((pageIndex % count) + count) % count;
+            pageLabel.text = $"Page {page + 1} / {count}";
+            for (int slot = 0; slot < LevelsPerPage; slot++)
+            {
+                int index = page * LevelsPerPage + slot;
+                bool used = index < catalog.Count;
+                levelButtons[slot].gameObject.SetActive(used);
+                if (!used)
+                    continue;
+                levelButtonLabels[slot].text = (index + 1).ToString();
+                levelButtons[slot].image.color = index == session.CurrentLevel ? CurrentColor : ButtonColor;
+            }
+        }
+
+        /// <summary>The grid button for a 0-based level index if the grid is open on its page; otherwise null.</summary>
+        public Button LevelButton(int index)
+        {
+            if (!GridOpen || index < 0 || index >= catalog.Count || index / LevelsPerPage != page)
+                return null;
+            return levelButtons[index % LevelsPerPage];
+        }
+
+        void Build(IGameSession targetSession, LevelCatalog levelCatalog, int sortingOrder)
+        {
+            session = targetSession;
+            catalog = levelCatalog;
+            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            EnsureEventSystem();
+
+            var canvas = gameObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = sortingOrder;
+            var scaler = gameObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = ReferenceResolution;
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+            gameObject.AddComponent<GraphicRaycaster>();
+
+            // The safe-area root has no Graphic, so it adds no uGUI raycast target of its own.
+            // uGUI targets never stop physics raycasts or collider input: the session must ignore
+            // pointers over UI (EventSystem.IsPointerOverGameObject or RaycastAll; architecture.md).
+            safeArea = NewRect("LevelSwitcherSafeArea", transform);
+            ApplySafeArea();
+
+            BuildBar();
+            BuildGrid();
+            grid.SetActive(false);
+
+            session.LevelLoaded += OnLevelLoaded;
+            OnLevelLoaded(session.CurrentLevel);
+        }
+
+        void BuildBar()
+        {
+            var bar = NewRect("LevelSwitcherBar", safeArea);
+            bar.anchorMin = new Vector2(0f, 0f);
+            bar.anchorMax = new Vector2(1f, 0f);
+            bar.pivot = new Vector2(0.5f, 0f);
+            bar.sizeDelta = new Vector2(0f, BarHeight);
+            bar.anchoredPosition = Vector2.zero;
+            bar.gameObject.AddComponent<Image>().color = BarColor;
+
+            PreviousButton = NewButton("LevelSwitcherPrevious", bar, "<", 0f, 0.14f, () => session.Previous());
+            levelLabel = NewText("LevelSwitcherLabel", bar, string.Empty, 44);
+            Span(levelLabel.rectTransform, 0.14f, 0.52f, 0f, 1f);
+            NextButton = NewButton("LevelSwitcherNext", bar, ">", 0.52f, 0.66f, () => session.Next());
+            RetryButton = NewButton("LevelSwitcherRetry", bar, "Retry", 0.66f, 0.83f, () => session.Retry());
+            OpenGridButton = NewButton("LevelSwitcherOpenGrid", bar, "Levels", 0.83f, 1f, OpenGrid);
+        }
+
+        void BuildGrid()
+        {
+            var panel = NewRect("LevelSwitcherGrid", safeArea);
+            Span(panel, 0f, 1f, 0f, 1f);
+            // Blocks other uGUI while open; gameplay input is filtered by the session's pointer-over-UI check.
+            panel.gameObject.AddComponent<Image>().color = PanelColor;
+            grid = panel.gameObject;
+
+            var title = NewText("LevelSwitcherGridTitle", panel, "Select level", 52);
+            Span(title.rectTransform, 0.05f, 0.75f, 0.88f, 0.96f);
+            CloseGridButton = NewButton("LevelSwitcherCloseGrid", panel, "Close", 0.75f, 0.95f, CloseGrid);
+            Span((RectTransform)CloseGridButton.transform, 0.75f, 0.95f, 0.88f, 0.96f);
+
+            int rows = LevelsPerPage / GridColumns;
+            for (int slot = 0; slot < LevelsPerPage; slot++)
+            {
+                int column = slot % GridColumns;
+                int row = slot / GridColumns;
+                float x0 = 0.05f + column * 0.18f;
+                float y1 = 0.84f - row * (0.56f / rows);
+                int captured = slot;
+                var button = NewButton("LevelSwitcherLevel_" + slot, panel, string.Empty, x0, x0 + 0.16f,
+                    () => OnLevelButton(captured));
+                Span((RectTransform)button.transform, x0, x0 + 0.16f, y1 - 0.12f, y1);
+                levelButtons[slot] = button;
+                levelButtonLabels[slot] = button.GetComponentInChildren<Text>();
+            }
+
+            PreviousPageButton = NewButton("LevelSwitcherPreviousPage", panel, "<", 0.05f, 0.25f, () => ShowPage(page - 1));
+            Span((RectTransform)PreviousPageButton.transform, 0.05f, 0.25f, 0.12f, 0.2f);
+            pageLabel = NewText("LevelSwitcherPageLabel", panel, string.Empty, 44);
+            Span(pageLabel.rectTransform, 0.25f, 0.75f, 0.12f, 0.2f);
+            NextPageButton = NewButton("LevelSwitcherNextPage", panel, ">", 0.75f, 0.95f, () => ShowPage(page + 1));
+            Span((RectTransform)NextPageButton.transform, 0.75f, 0.95f, 0.12f, 0.2f);
+        }
+
+        void OnLevelButton(int slot)
+        {
+            int index = page * LevelsPerPage + slot;
+            if (index >= catalog.Count)
+                return;
+            CloseGrid();
+            session.Load(index);
+        }
+
+        void OnLevelLoaded(int index)
+        {
+            levelLabel.text = index < 0
+                ? $"Level - / {catalog.Count}"
+                : $"Level {index + 1} / {catalog.Count}";
+            if (grid.activeSelf) // refresh even while the overlay is hidden
+                ShowPage(index < 0 ? 0 : index / LevelsPerPage);
+        }
+
+        void LateUpdate()
+        {
+            if (Screen.safeArea != appliedSafeArea || Screen.width != appliedScreen.x || Screen.height != appliedScreen.y)
+                ApplySafeArea();
+        }
+
+        void OnDestroy()
+        {
+            if (session != null)
+                session.LevelLoaded -= OnLevelLoaded;
+        }
+
+        void ApplySafeArea()
+        {
+            appliedSafeArea = Screen.safeArea;
+            appliedScreen = new Vector2Int(Screen.width, Screen.height);
+            if (Screen.width <= 0 || Screen.height <= 0)
+                return;
+            var size = new Vector2(Screen.width, Screen.height);
+            safeArea.anchorMin = appliedSafeArea.position / size;
+            safeArea.anchorMax = (appliedSafeArea.position + appliedSafeArea.size) / size;
+            safeArea.offsetMin = Vector2.zero;
+            safeArea.offsetMax = Vector2.zero;
+        }
+
+        static void EnsureEventSystem()
+        {
+            var eventSystem = EventSystem.current != null
+                ? EventSystem.current
+                : FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
+            // An inactive EventSystem may belong to the user's scene: leave it alone and use our own.
+            if (eventSystem == null || !eventSystem.isActiveAndEnabled)
+                eventSystem = new GameObject("EventSystem", typeof(EventSystem)).GetComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+            // Input System pointer events (used by real-input verification) reach uGUI only through
+            // InputSystemUIInputModule; a StandaloneInputModule fails clicks and throws every frame when
+            // only the Input System is active. The swap is a runtime-only change (Play Mode, not saved):
+            // the EventSystem may sit in a scene that belongs to the user.
+            var legacy = eventSystem.GetComponent<StandaloneInputModule>();
+            if (legacy != null)
+            {
+                if (!Application.isPlaying)
+                {
+                    Debug.LogWarning("LevelSwitcherOverlay: StandaloneInputModule not replaced outside Play Mode.");
+                    return;
+                }
+                DestroyImmediate(legacy); // immediate, so two input modules never coexist
+            }
+            // An InputSystemUIInputModule or a custom module is already there: leave it, never add a second.
+            if (eventSystem.GetComponent<BaseInputModule>() != null)
+                return;
+            var module = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+            if (module.actionsAsset == null)
+                module.AssignDefaultActions();
+#else
+            if (eventSystem.GetComponent<BaseInputModule>() == null)
+                eventSystem.gameObject.AddComponent<StandaloneInputModule>();
+#endif
+        }
+
+        static RectTransform NewRect(string name, Transform parent)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(parent, false);
+            Span(rect, 0f, 1f, 0f, 1f);
+            return rect;
+        }
+
+        static void Span(RectTransform rect, float xMin, float xMax, float yMin, float yMax)
+        {
+            rect.anchorMin = new Vector2(xMin, yMin);
+            rect.anchorMax = new Vector2(xMax, yMax);
+            rect.offsetMin = new Vector2(6f, 6f);
+            rect.offsetMax = new Vector2(-6f, -6f);
+        }
+
+        Text NewText(string name, Transform parent, string value, int fontSize)
+        {
+            var rect = NewRect(name, parent);
+            var text = rect.gameObject.AddComponent<Text>();
+            text.font = font;
+            text.fontSize = fontSize;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            text.raycastTarget = false;
+            text.text = value;
+            return text;
+        }
+
+        Button NewButton(string name, Transform parent, string label, float xMin, float xMax, Action onClick)
+        {
+            var rect = NewRect(name, parent);
+            Span(rect, xMin, xMax, 0f, 1f);
+            var image = rect.gameObject.AddComponent<Image>();
+            image.color = ButtonColor;
+            var button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(() => onClick());
+            NewText(name + "Label", rect, label, 40);
+            return button;
+        }
+    }
+}

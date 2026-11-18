@@ -1,0 +1,870 @@
+// TEMPLATE — unverified; adapt and verify in the target project.
+// Editor assembly only (__GAME_NAMESPACE__.Editor.asmdef: references __GAME_NAMESPACE__.Runtime, Unity.InputSystem,
+// UnityEngine.UI; includePlatforms Editor); the body is also wrapped in #if UNITY_EDITOR. Copy to PointerSmoke.cs,
+// replace __GAME_NAMESPACE__ and __GAME_SLUG__, search for "ADAPT" and "__GAME_": every ADAPT is filled in and
+// no token is left.
+//
+// Contract
+//   PointerSmoke.Start(receiptPath) starts an asynchronous Play Mode run and returns at once.
+//   When the run ends it writes the receipt (never earlier, so a receipt that exists is a finished run):
+//       line 1  PASS | FAIL | ABORTED
+//       line 2  evidence directory (<receipt name>-evidence next to the receipt)
+//   The evidence directory holds report.txt, one line per check: <id> TAB <PASS|FAIL> TAB <detail>
+//   (ids: level-<n>, switch-*, ui-blocks-gameplay, mechanic-<id>, sample-win, console), console.txt,
+//   moves.txt and the PNG captures level-<n>-<portrait|landscape>-<W>x<H>.png.
+//   Judge the run with python3 scripts/check_evidence.py, never by the launcher's exit code.
+//   PointerSmoke.Cancel() ends an active run: ABORTED receipt, state restored, phase cleared.
+//
+// A dirty loaded scene blocks the run: Start throws, because this tool never saves, discards or replaces a
+// user scene and entering Play Mode over unsaved changes can prompt for exactly that. Report the pointer
+// checks as BLOCKED (not FAIL, not PASS) with the unblock step "save or discard the open scene, then rerun".
+// The run sets EditorSceneManager.playModeStartScene to the gameplay scene and restores the previous value
+// when it ends (also on abort and cancel).
+//
+// Pointer input is real: events are queued on a virtual Mouse (or Touchscreen) and travel through the
+// production UI module and raycasts. Direct calls (session.Load, Retry) are setup only. A mechanic probe
+// that sends no pointer event fails. Every unconfigured hook is a FAIL line, never a skip.
+// Level indices are 0-based; check ids and file names use index + 1.
+// Run once per orientation: set the Game View size first, start a fresh receipt for each.
+#if UNITY_EDITOR
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+namespace __GAME_NAMESPACE__.EditorTools
+{
+    /// <summary>Real pointer events on a virtual device. Position lambdas are resolved at tap time.</summary>
+    public sealed class PointerDriver
+    {
+        Mouse mouse;
+        Touchscreen touchscreen;
+        int touchId;
+
+        /// <summary>Press events delivered so far (a probe that leaves this unchanged did not use the pointer).</summary>
+        public int EventsSent { get; private set; }
+
+        internal void Attach()
+        {
+            if (PointerSmoke.UseTouch)
+                touchscreen = InputSystem.AddDevice<Touchscreen>("PointerSmokeTouch");
+            else
+                mouse = InputSystem.AddDevice<Mouse>("PointerSmokeMouse");
+        }
+
+        internal void Detach()
+        {
+            if (mouse != null) InputSystem.RemoveDevice(mouse);
+            if (touchscreen != null) InputSystem.RemoveDevice(touchscreen);
+            mouse = null;
+            touchscreen = null;
+        }
+
+        public IEnumerator Tap(Func<Vector2> where, string what)
+        {
+            Vector2 p = where(); // resolved now: a view that moved is hit where it is
+            if (touchscreen != null)
+            {
+                touchId++;
+                InputSystem.QueueStateEvent(touchscreen, new TouchState
+                {
+                    touchId = touchId, phase = UnityEngine.InputSystem.TouchPhase.Began, position = p, pressure = 1f
+                });
+                PointerSmoke.Flush();
+                EventsSent++;
+                yield return PointerSmoke.InputStep(2);
+                InputSystem.QueueStateEvent(touchscreen, new TouchState
+                {
+                    touchId = touchId, phase = UnityEngine.InputSystem.TouchPhase.Ended, position = p
+                });
+                PointerSmoke.Flush();
+            }
+            else
+            {
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = p });
+                PointerSmoke.Flush();
+                yield return PointerSmoke.InputStep(1);
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = p }.WithButton(MouseButton.Left));
+                PointerSmoke.Flush();
+                EventsSent++;
+                yield return PointerSmoke.InputStep(2); // press and release must not share one input update
+                InputSystem.QueueStateEvent(mouse, new MouseState { position = p });
+                PointerSmoke.Flush();
+            }
+            yield return PointerSmoke.InputStep(2);
+        }
+
+        /// <summary>A null or inactive button is not clickable: the step fails, it is never skipped.</summary>
+        public IEnumerator TapButton(Button button, string what)
+        {
+            if (button == null || !button.isActiveAndEnabled || !button.IsInteractable())
+                throw new InvalidOperationException(what + ": button is null or not clickable");
+            var rect = (RectTransform)button.transform;
+            yield return Tap(() => RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(rect.rect.center)), what);
+        }
+    }
+
+    /// <summary>
+    /// ADAPT: game-specific adapters. Fill these in from evidence/mechanics.md and the model. Anything left
+    /// null makes the checks that need it fail.
+    /// </summary>
+    public static class PointerSmokeHooks
+    {
+        public sealed class Move
+        {
+            public string Description;
+            public Func<Vector2> ScreenPosition;   // resolved at tap time
+            public float WaitAfterSeconds = 0.5f;
+        }
+
+        public sealed class SampleSolution
+        {
+            public int LevelIndex;                 // 0-based
+            public string Source;                  // "video <file> @ <time>" or "agent-derived: <how it was found>"
+            public List<Move> Moves = new List<Move>();
+        }
+
+        public sealed class MechanicProbe
+        {
+            public string Id;                      // short-id from evidence/mechanics.md
+            public int LevelIndex;                 // 0-based, a level that uses the mechanic
+            public Action Setup;                   // optional direct calls (setup only, never the interaction)
+            public Func<PointerDriver, IEnumerator> Interact; // driver.Tap(...) calls: the real interaction
+            public Func<string> Verify;            // null when the expected result holds, else what differed
+        }
+
+        /// <summary>0-based level where TapTarget names a target whose tap the game accepts.</summary>
+        public static int InteractiveLevel = 0;
+
+        /// <summary>Screen position (pixels) of one board target in the current level, or null when none.</summary>
+        public static Func<Vector2?> TapTarget;
+
+        /// <summary>Fingerprint of model state; changes on any accepted tap. Not a hash of views.</summary>
+        public static Func<string> BoardState;
+
+        /// <summary>Pending or queued taps and reservations; 0 when nothing is waiting. Use () => 0 only if the game has none.</summary>
+        public static Func<int> PendingInput;
+
+        /// <summary>Per-level inventory (boosters, keys, counters) as text. Use () => "" only if the game has none.</summary>
+        public static Func<string> Inventory;
+
+        /// <summary>Optional: real pointer actions that dirty the level (default: two immediate taps on TapTarget).</summary>
+        public static Func<PointerDriver, IEnumerator> Dirty;
+
+        /// <summary>Every short-id in evidence/mechanics.md. A mechanic without a probe fails.</summary>
+        public static string[] MechanicIds = new string[0];
+
+        public static readonly List<MechanicProbe> Mechanics = new List<MechanicProbe>();
+
+        public static SampleSolution Sample;
+
+        /// <summary>Called once at the start of a run. Assign the hooks here.</summary>
+        public static void Configure()
+        {
+            // ADAPT. Example for a fictional game "Tile Twister" (illustrative only):
+            //   var game = UnityEngine.Object.FindAnyObjectByType<TileTwisterGame>();
+            //   TapTarget  = () => game.FirstMovablePieceScreenPosition();      // Camera.WorldToScreenPoint of its collider
+            //   BoardState = () => game.Model.Serialize();
+            //   PendingInput = () => game.PendingTapCount;
+            //   Inventory  = () => string.Join(",", game.Model.BoosterCounts);
+            //   MechanicIds = new[] { "ice" };
+            //   Mechanics.Add(new MechanicProbe {
+            //       Id = "ice", LevelIndex = 5,   // Stage_006
+            //       Interact = d => TapIcedCell(d, game),
+            //       Verify = () => game.Model.IceAt(2, 3) == 1 ? null : "ice at (2,3) is " + game.Model.IceAt(2, 3) });
+            //   Sample = new SampleSolution { LevelIndex = 0, Source = "agent-derived: depth-first search over Stage_001", Moves = { ... } };
+        }
+    }
+
+    public static class PointerSmoke
+    {
+        // ADAPT these constants.
+        // static readonly, not const: a const bool makes the other branch unreachable code (CS0162).
+        public static readonly bool UseTouch = false;        // true when production code reads Touchscreen, not Mouse
+        const string GameplayScenePath = "Assets/__GAME_SLUG__/Scenes/__GAME_SLUG__Gameplay.unity";
+        const float SettleSeconds = 1.5f;                    // Inferred: wait before a capture; adapt to the intro animation
+        const float StepTimeoutSeconds = 20f;
+        const float WinTimeoutSeconds = 60f;
+        const float RunTimeoutSeconds = 1800f;
+
+        const string KeyPhase = "PointerSmoke.Phase";        // "", starting, running, finishing
+        const string KeyReceipt = "PointerSmoke.Receipt";
+        const string KeyEvidence = "PointerSmoke.Evidence";
+        const string KeyStatus = "PointerSmoke.Status";
+        const string KeyPrevStartScene = "PointerSmoke.PrevStartScene";
+
+        sealed class Check { public string Id; public IEnumerator Body; }
+        sealed class Frame { public IEnumerator Body; public string CheckId; }
+
+        static readonly Stack<Frame> stack = new Stack<Frame>();
+        static readonly HashSet<string> recorded = new HashSet<string>();
+        static readonly List<string> warnings = new List<string>();
+        static readonly List<string> errors = new List<string>();
+        static PointerDriver driver;
+        static GameSession session;
+        static LevelSwitcherOverlay overlay;
+        static string evidenceDir;
+        static int failures;
+        static double runStarted;
+        const string KeyInputSaved = "PointerSmoke.InputSaved"; // originals survive a domain reload
+        const string KeySavedBackground = "PointerSmoke.SavedBackground";
+        const string KeySavedEditorBehavior = "PointerSmoke.SavedEditorBehavior";
+        const string KeySavedRunInBackground = "PointerSmoke.SavedRunInBackground";
+
+        // ---- entry points -------------------------------------------------------------------------------
+
+        public static string Start(string receiptPath)
+        {
+            if (string.IsNullOrWhiteSpace(receiptPath))
+                throw new ArgumentException("receiptPath is required", nameof(receiptPath));
+            receiptPath = Path.GetFullPath(receiptPath);
+            if (File.Exists(receiptPath))
+                throw new InvalidOperationException("Receipt exists: " + receiptPath +
+                    ". It belongs to an earlier run. Use a fresh path in a new checks/<run-id>/ directory.");
+            if (SessionState.GetString(KeyPhase, "") != "")
+                throw new InvalidOperationException("A pointer smoke run is already active; wait for its receipt.");
+            if (EditorApplication.isPlaying)
+                throw new InvalidOperationException("Leave Play Mode first so the run starts a fresh session.");
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var open = SceneManager.GetSceneAt(i);
+                if (open.isDirty)
+                    throw new InvalidOperationException("Pointer checks are BLOCKED: the loaded scene '" +
+                        (string.IsNullOrEmpty(open.path) ? open.name : open.path) + "' has unsaved changes, and this run never " +
+                        "saves, discards or replaces a user scene. Report the pointer items as BLOCKED; unblock step: save or " +
+                        "discard that scene (the user's decision), then run again.");
+            }
+            var scene = AssetDatabase.LoadAssetAtPath<SceneAsset>(GameplayScenePath);
+            if (scene == null)
+                throw new InvalidOperationException("Gameplay scene not found: " + GameplayScenePath);
+
+            var dir = Path.GetDirectoryName(receiptPath);
+            var evidence = Path.Combine(dir, Path.GetFileNameWithoutExtension(receiptPath) + "-evidence");
+            if (Directory.Exists(evidence) && Directory.GetFileSystemEntries(evidence).Length > 0)
+                throw new InvalidOperationException("Evidence directory is not empty: " + evidence);
+            Directory.CreateDirectory(evidence);
+
+            recorded.Clear(); failures = 0; evidenceDir = evidence;
+            SessionState.SetString(KeyReceipt, receiptPath);
+            SessionState.SetString(KeyEvidence, evidence);
+            SessionState.SetString(KeyStatus, "");
+            var previous = EditorSceneManager.playModeStartScene;
+            SessionState.SetString(KeyPrevStartScene, previous != null ? AssetDatabase.GetAssetPath(previous) : "");
+            EditorSceneManager.playModeStartScene = scene; // restored by RestoreStartScene when the run ends
+            SessionState.SetString(KeyPhase, "starting");
+            Subscribe();
+            EditorApplication.isPlaying = true;
+            return "started; wait for the receipt " + receiptPath + ", then run scripts/check_evidence.py";
+        }
+
+        /// <summary>
+        /// Ends an active run: writes an ABORTED receipt, restores Editor and Input System state, clears the phase.
+        /// Use it when a run is stuck or no longer wanted. Without a run it does nothing.
+        /// </summary>
+        public static string Cancel()
+        {
+            var phase = SessionState.GetString(KeyPhase, "");
+            if (phase == "") return "no active run";
+            if (phase == "finishing") return "the run is already finishing";
+            var receipt = SessionState.GetString(KeyReceipt, "");
+            Record("run", false, "cancelled by Cancel()");
+            Finish("ABORTED");
+            return "ABORTED; receipt " + receipt + " is written once Play Mode has left";
+        }
+
+        /// <summary>For -executeMethod: reads -pointerSmokeReceipt &lt;path&gt;. Unproven in batchmode (see the reference).</summary>
+        public static void StartFromCommandLine()
+        {
+            var args = Environment.GetCommandLineArgs();
+            int at = Array.IndexOf(args, "-pointerSmokeReceipt");
+            if (at < 0 || at + 1 >= args.Length)
+                throw new ArgumentException("pass -pointerSmokeReceipt <path>");
+            Start(args[at + 1]);
+        }
+
+        // ---- lifecycle across domain reloads --------------------------------------------------------------
+
+        [InitializeOnLoadMethod]
+        static void OnEditorLoad()
+        {
+            var phase = SessionState.GetString(KeyPhase, "");
+            if (phase == "")
+                return;
+            Subscribe(); // EnteredPlayMode starts the run (BeginRun); nothing starts here
+            if (phase == "running")
+                Abort("domain reload while the run was in progress");
+            else if (phase == "finishing" && !EditorApplication.isPlaying)
+                FinalizeReceipt();
+        }
+
+        static void Subscribe()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
+        }
+
+        static void OnPlayModeChanged(PlayModeStateChange change)
+        {
+            var phase = SessionState.GetString(KeyPhase, "");
+            if (change == PlayModeStateChange.EnteredPlayMode && phase == "starting")
+                BeginRun();
+            else if (change == PlayModeStateChange.ExitingPlayMode && phase == "running")
+                Abort("Play Mode was left before the run finished");
+            else if (change == PlayModeStateChange.EnteredEditMode && phase == "starting")
+            {
+                Record("run", false, "Play Mode never entered: compile errors, cancelled dialog or Stop");
+                Finish("ABORTED");
+            }
+            else if (change == PlayModeStateChange.EnteredEditMode && phase == "finishing")
+                FinalizeReceipt();
+        }
+
+        static void BeginRun()
+        {
+            SessionState.SetString(KeyPhase, "running");
+            evidenceDir = SessionState.GetString(KeyEvidence, "");
+            try
+            {
+                stack.Clear(); recorded.Clear(); warnings.Clear(); errors.Clear(); failures = 0;
+                session = null; overlay = null;
+                runStarted = EditorApplication.timeSinceStartup;
+                ApplyInputSettings();
+                Application.logMessageReceived += OnLog;
+                driver = new PointerDriver();
+                driver.Attach();
+                PointerSmokeHooks.Mechanics.Clear();
+                PointerSmokeHooks.Configure();
+                stack.Push(new Frame { Body = RunAll() });
+                EditorApplication.update += Tick;
+            }
+            catch (Exception ex)
+            {
+                Record("run", false, "BeginRun failed: " + ex);
+                Finish("ABORTED");
+            }
+        }
+
+        static void Abort(string reason)
+        {
+            Record("run", false, reason);
+            Finish("ABORTED");
+        }
+
+        static void Step(string what, Action action)
+        {
+            try { action(); }
+            catch (Exception ex) { Debug.LogError("PointerSmoke teardown step '" + what + "' failed: " + ex); }
+        }
+
+        /// <summary>Stops the run and restores state. Each step is isolated; the receipt is written last, by FinalizeReceipt.</summary>
+        static void Finish(string status)
+        {
+            var phase = SessionState.GetString(KeyPhase, "");
+            if (phase != "starting" && phase != "running")
+                return; // nothing active, or already finishing
+            try
+            {
+                Step("stop runner", () =>
+                {
+                    EditorApplication.update -= Tick;
+                    Application.logMessageReceived -= OnLog;
+                });
+                Step("dispose coroutines", () => DisposeFrames(null));
+                Step("close level grid", CloseGridIfOpen);
+                Step("detach pointer device", () => { if (driver != null) driver.Detach(); driver = null; });
+                Step("write console.txt", WriteConsole);
+            }
+            finally
+            {
+                Step("restore Input System settings and runInBackground", RestoreInputSettings);
+                Step("restore playModeStartScene", RestoreStartScene);
+                SessionState.SetString(KeyStatus, status);
+                SessionState.SetString(KeyPhase, "finishing");
+            }
+            if (EditorApplication.isPlaying)
+                EditorApplication.isPlaying = false; // the receipt follows when Edit Mode is entered
+            else
+            {
+                if (EditorApplication.isPlayingOrWillChangePlaymode) EditorApplication.isPlaying = false;
+                FinalizeReceipt();
+            }
+        }
+
+        static void WriteConsole()
+        {
+            if (string.IsNullOrEmpty(evidenceDir)) evidenceDir = SessionState.GetString(KeyEvidence, "");
+            if (string.IsNullOrEmpty(evidenceDir) || !Directory.Exists(evidenceDir)) return;
+            File.WriteAllText(Path.Combine(evidenceDir, "console.txt"),
+                "errors=" + errors.Count + "\n" + string.Join("\n", errors) + "\nwarnings=" + warnings.Count + "\n" +
+                string.Join("\n", warnings) + "\n", new UTF8Encoding(false));
+        }
+
+        static void CloseGridIfOpen()
+        {
+            if (overlay != null && overlay.GridOpen) overlay.CloseGrid();
+        }
+
+        /// <summary>Idempotent: puts back the playModeStartScene that Start replaced.</summary>
+        static void RestoreStartScene()
+        {
+            if (SessionState.GetString(KeyPhase, "") == "")
+                return; // no run owns the setting any more
+            var previous = SessionState.GetString(KeyPrevStartScene, "");
+            EditorSceneManager.playModeStartScene = string.IsNullOrEmpty(previous)
+                ? null : AssetDatabase.LoadAssetAtPath<SceneAsset>(previous);
+        }
+
+        /// <summary>Writes the receipt, last and atomically: an existing receipt is a finished run.</summary>
+        static void FinalizeReceipt()
+        {
+            if (SessionState.GetString(KeyPhase, "") == "")
+                return; // already finalized
+            var status = SessionState.GetString(KeyStatus, "ABORTED");
+            var receipt = SessionState.GetString(KeyReceipt, "");
+            var evidence = SessionState.GetString(KeyEvidence, "");
+            try
+            {
+                Step("restore Input System settings and runInBackground", RestoreInputSettings);
+                Step("restore playModeStartScene", RestoreStartScene);
+            }
+            finally
+            {
+                foreach (var key in new[] { KeyPhase, KeyReceipt, KeyEvidence, KeyStatus, KeyPrevStartScene })
+                    SessionState.EraseString(key);
+            }
+            var temp = receipt + ".tmp";
+            File.WriteAllText(temp, status + "\n" + evidence + "\n", new UTF8Encoding(false));
+            File.Move(temp, receipt);
+            Debug.Log("PointerSmoke " + status + ": " + receipt);
+            if (Application.isBatchMode)
+                EditorApplication.Exit(status == "PASS" ? 0 : 1);
+        }
+
+        static void ApplyInputSettings()
+        {
+            // Events queued while the Game View is unfocused are dropped by default. Restored in Finish.
+            // ADAPT: property names differ between Input System versions. The settings object may be a
+            // project asset: the originals go to SessionState and are written back, never saved changed.
+            var settings = InputSystem.settings;
+            SessionState.SetBool(KeySavedRunInBackground, Application.runInBackground);
+            SessionState.SetInt(KeySavedBackground, (int)settings.backgroundBehavior);
+            SessionState.SetInt(KeySavedEditorBehavior, (int)settings.editorInputBehaviorInPlayMode);
+            SessionState.SetBool(KeyInputSaved, true);
+            Application.runInBackground = true;
+            settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
+            settings.editorInputBehaviorInPlayMode = InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
+        }
+
+        static void RestoreInputSettings()
+        {
+            if (!SessionState.GetBool(KeyInputSaved, false)) return;
+            var settings = InputSystem.settings;
+            settings.backgroundBehavior = (InputSettings.BackgroundBehavior)SessionState.GetInt(KeySavedBackground, 0);
+            settings.editorInputBehaviorInPlayMode =
+                (InputSettings.EditorInputBehaviorInPlayMode)SessionState.GetInt(KeySavedEditorBehavior, 0);
+            Application.runInBackground = SessionState.GetBool(KeySavedRunInBackground, false);
+            SessionState.EraseBool(KeyInputSaved);
+        }
+
+        // ---- coroutine runner (Editor update; exceptions become FAIL lines of the open check) ---------------
+
+        static void Tick()
+        {
+            if (EditorApplication.timeSinceStartup - runStarted > RunTimeoutSeconds)
+            {
+                Abort("run exceeded " + RunTimeoutSeconds + " s");
+                return;
+            }
+            for (int guard = 0; stack.Count > 0 && guard < 10000; guard++)
+            {
+                var top = stack.Peek();
+                bool more;
+                try { more = top.Body.MoveNext(); }
+                catch (Exception ex) { Unwind(ex); continue; }
+                if (!more)
+                {
+                    stack.Pop();
+                    if (top.CheckId != null && !recorded.Contains(top.CheckId))
+                        Record(top.CheckId, false, "check ended without recording a result");
+                    continue;
+                }
+                var yielded = top.Body.Current;
+                if (yielded is Check check) stack.Push(new Frame { Body = check.Body, CheckId = check.Id });
+                else if (yielded is IEnumerator inner) stack.Push(new Frame { Body = inner });
+                else return; // null: continue at the next Editor update
+            }
+            if (stack.Count == 0 && SessionState.GetString(KeyPhase, "") == "running")
+                Finish(failures == 0 ? "PASS" : "FAIL");
+        }
+
+        static void Unwind(Exception ex)
+        {
+            var detail = ex.GetType().Name + ": " + ex.Message;
+            var owner = DisposeFrames(frame => frame.CheckId != null);
+            try { CloseGridIfOpen(); } // a failed check must not leave the grid covering the next one
+            catch (Exception closeError) { Debug.LogError("PointerSmoke: closing the level grid failed: " + closeError); }
+            Record(owner ?? "runner", false, detail);
+        }
+
+        /// <summary>Pops frames and disposes their iterators so finally blocks run. Returns the id of the frame that stopped it.</summary>
+        static string DisposeFrames(Func<Frame, bool> stopAfter)
+        {
+            while (stack.Count > 0)
+            {
+                var frame = stack.Pop();
+                (frame.Body as IDisposable)?.Dispose();
+                if (stopAfter != null && stopAfter(frame)) return frame.CheckId;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Input System update modes. Manual: nothing is processed unless InputSystem.Update() is called, so
+        /// Flush() calls it after each queued event. Fixed update: events are processed in FixedUpdate, so a
+        /// gap between press and release waits for a fixed step plus a frame (InputStep).
+        /// </summary>
+        public static void Flush()
+        {
+            if (InputSystem.settings.updateMode == InputSettings.UpdateMode.ProcessEventsManually)
+                InputSystem.Update();
+        }
+
+        public static IEnumerator InputStep(int frames)
+        {
+            if (InputSystem.settings.updateMode == InputSettings.UpdateMode.ProcessEventsInFixedUpdate)
+                yield return Seconds(Time.fixedDeltaTime);
+            yield return Frames(frames);
+        }
+
+        public static IEnumerator Frames(int count)
+        {
+            int target = Time.frameCount + count;
+            yield return Until(() => Time.frameCount >= target, "Time.frameCount to advance");
+        }
+
+        public static IEnumerator Seconds(float seconds)
+        {
+            double end = EditorApplication.timeSinceStartup + seconds;
+            while (EditorApplication.timeSinceStartup < end) yield return null;
+        }
+
+        public static IEnumerator Until(Func<bool> condition, string what, float timeout = StepTimeoutSeconds)
+        {
+            double end = EditorApplication.timeSinceStartup + timeout;
+            while (!condition())
+            {
+                if (EditorApplication.timeSinceStartup > end)
+                    throw new TimeoutException("timed out waiting for " + what +
+                        ". If Time.frameCount is not advancing the Editor is not ticking (focus or auto-tick).");
+                yield return null;
+            }
+        }
+
+        static void OnLog(string message, string stackTrace, LogType type)
+        {
+            if (type == LogType.Warning) warnings.Add(Sanitize(message));
+            else if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+                errors.Add(type + ": " + Sanitize(message));
+        }
+
+        static string Sanitize(string text) => (text ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+
+        static void Record(string id, bool pass, string detail)
+        {
+            if (!recorded.Add(id)) return;
+            if (string.IsNullOrEmpty(evidenceDir)) evidenceDir = SessionState.GetString(KeyEvidence, "");
+            if (!pass) failures++;
+            File.AppendAllText(Path.Combine(evidenceDir, "report.txt"),
+                id + "\t" + (pass ? "PASS" : "FAIL") + "\t" + Sanitize(detail) + "\n", new UTF8Encoding(false));
+        }
+
+        // ---- the checks ---------------------------------------------------------------------------------
+
+        static IEnumerator RunAll()
+        {
+            yield return Until(() =>
+            {
+                if (session == null) session = UnityEngine.Object.FindAnyObjectByType<GameSession>();
+                if (overlay == null) overlay = UnityEngine.Object.FindAnyObjectByType<LevelSwitcherOverlay>();
+                return session != null && overlay != null && session.CurrentLevel >= 0;
+            }, "the gameplay scene to load a level and create the level switcher");
+
+            Record("viewport", true, Screen.width + "x" + Screen.height + " " + Orientation());
+            for (int i = 0; i < session.Catalog.Count; i++)
+                yield return new Check { Id = "level-" + (i + 1), Body = LevelCheck(i) };
+            // With Count == 1, last == 0: next and previous wrap to index 0 (a reload), and that is the PASS.
+            int last = session.Catalog.Count - 1;
+            yield return new Check { Id = "switch-next", Body = SwitchCheck("switch-next", 0, () => overlay.NextButton, Math.Min(1, last)) };
+            yield return new Check { Id = "switch-previous", Body = SwitchCheck("switch-previous", Math.Min(1, last), () => overlay.PreviousButton, 0) };
+            yield return new Check { Id = "switch-next-wrap", Body = SwitchCheck("switch-next-wrap", last, () => overlay.NextButton, 0) };
+            yield return new Check { Id = "switch-previous-wrap", Body = SwitchCheck("switch-previous-wrap", 0, () => overlay.PreviousButton, last) };
+            yield return new Check { Id = "switch-retry-resets", Body = RetryResets() };
+            yield return new Check { Id = "switch-clears-input", Body = SwitchClearsInput() };
+            yield return new Check { Id = "ui-blocks-gameplay", Body = UiBlocksGameplay() };
+            foreach (var id in PointerSmokeHooks.MechanicIds)
+            {
+                var probe = PointerSmokeHooks.Mechanics.Find(p => p.Id == id);
+                if (probe == null) Record("mechanic-" + id, false, "no probe configured for this mechanic");
+                else yield return new Check { Id = "mechanic-" + id, Body = MechanicCheck(probe) };
+            }
+            if (PointerSmokeHooks.MechanicIds.Length == 0)
+                Record("mechanics-none", false, "no mechanic ids configured; every mechanic in mechanics.md needs a probe");
+            yield return new Check { Id = "sample-win", Body = SampleWin() };
+            Record("console", errors.Count == 0, errors.Count + " errors, " + warnings.Count + " warnings logged during the run (console.txt)");
+        }
+
+        static string Orientation() => Screen.height >= Screen.width ? "portrait" : "landscape";
+
+        static IEnumerator LoadAndSettle(int index)
+        {
+            CloseGridIfOpen(); // a grid left open by an earlier check would swallow this check's clicks
+            session.Load(index); // setup only
+            yield return Until(() => session.CurrentLevel == index, "level " + (index + 1) + " to load");
+            yield return Seconds(SettleSeconds);
+        }
+
+        /// <summary>Selects a level the way a player does: grid, page, level button. A null button is a FAIL.</summary>
+        static IEnumerator SelectByPointer(int index)
+        {
+            if (!overlay.GridOpen)
+                yield return driver.TapButton(overlay.OpenGridButton, "open level grid");
+            yield return Until(() => overlay.GridOpen, "the level grid to open");
+            for (int tries = 0; tries < overlay.PageCount && overlay.LevelButton(index) == null; tries++)
+                yield return driver.TapButton(overlay.NextPageButton, "next grid page");
+            var button = overlay.LevelButton(index);
+            if (button == null)
+                throw new InvalidOperationException("LevelButton(" + index + ") is null after paging: not clickable");
+            int loaded = -2;
+            Action<int> onLoaded = i => loaded = i;
+            session.LevelLoaded += onLoaded;
+            try
+            {
+                yield return driver.TapButton(button, "level button " + (index + 1));
+                yield return Until(() => loaded == index, "LevelLoaded(" + index + ") after the pointer click");
+            }
+            finally { session.LevelLoaded -= onLoaded; }
+        }
+
+        static IEnumerator LevelCheck(int index)
+        {
+            int errorsBefore = errors.Count;
+            yield return SelectByPointer(index);
+            if (session.CurrentLevel != index)
+                throw new InvalidOperationException("CurrentLevel is " + session.CurrentLevel + ", expected " + index);
+            yield return Seconds(SettleSeconds);
+            if (errors.Count != errorsBefore)
+                throw new InvalidOperationException((errors.Count - errorsBefore) + " error(s) logged while loading; first: " + errors[errorsBefore]);
+            var file = "level-" + (index + 1) + "-" + Orientation() + "-" + Screen.width + "x" + Screen.height + ".png";
+            yield return Capture(Path.Combine(evidenceDir, file));
+            Record("level-" + (index + 1), true, "selected by pointer click; " + file);
+        }
+
+        /// <summary>Hides the switcher (a recreation tool, not original UI), captures, restores it.</summary>
+        static IEnumerator Capture(string path)
+        {
+            overlay.SetVisible(false);
+            try
+            {
+                yield return Frames(2);
+                ScreenCapture.CaptureScreenshot(path);
+                long lastSize = -1; // ready = size stable across two polls and a PNG signature
+                yield return Until(() =>
+                {
+                    if (!File.Exists(path)) return false;
+                    long size = new FileInfo(path).Length;
+                    bool stable = size > 0 && size == lastSize;
+                    lastSize = size;
+                    return stable && HasPngSignature(path);
+                }, "the screenshot file to be completely written");
+            }
+            finally { overlay.SetVisible(true); }
+        }
+
+        static bool HasPngSignature(string path)
+        {
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    var head = new byte[8];
+                    int read = stream.Read(head, 0, 8);
+                    return read == 8 && head[0] == 0x89 && head[1] == 0x50 && head[2] == 0x4E && head[3] == 0x47 &&
+                           head[4] == 0x0D && head[5] == 0x0A && head[6] == 0x1A && head[7] == 0x0A;
+                }
+            }
+            catch (IOException) { return false; } // still being written
+        }
+
+        static IEnumerator SwitchCheck(string id, int startIndex, Func<Button> button, int expected)
+        {
+            yield return LoadAndSettle(startIndex);
+            int loaded = -2; // wait for the load the click caused; with one level, CurrentLevel never changes
+            Action<int> onLoaded = i => loaded = i;
+            session.LevelLoaded += onLoaded;
+            try
+            {
+                yield return driver.TapButton(button(), id);
+                yield return Until(() => loaded == expected, "LevelLoaded(" + expected + ") after the pointer click");
+            }
+            finally { session.LevelLoaded -= onLoaded; }
+            if (session.CurrentLevel != expected)
+                throw new InvalidOperationException("CurrentLevel is " + session.CurrentLevel + ", expected " + expected);
+            Record(id, true, "level " + (startIndex + 1) + " -> level " + (expected + 1) +
+                   (session.Catalog.Count == 1 ? " (one level: wraps to itself)" : ""));
+        }
+
+        static void RequireHooks()
+        {
+            if (PointerSmokeHooks.TapTarget == null || PointerSmokeHooks.BoardState == null ||
+                PointerSmokeHooks.PendingInput == null || PointerSmokeHooks.Inventory == null)
+                throw new InvalidOperationException("hooks TapTarget, BoardState, PendingInput and Inventory must all be set");
+        }
+
+        static string Snapshot() =>
+            "board=" + PointerSmokeHooks.BoardState() + "|pending=" + PointerSmokeHooks.PendingInput() +
+            "|inventory=" + PointerSmokeHooks.Inventory();
+
+        static Func<Vector2> Target()
+        {
+            var at = PointerSmokeHooks.TapTarget();
+            if (!at.HasValue) throw new InvalidOperationException("TapTarget found no target on this level");
+            var value = at.Value;
+            return () => PointerSmokeHooks.TapTarget() ?? value;
+        }
+
+        static IEnumerator DirtyLevel()
+        {
+            if (PointerSmokeHooks.Dirty != null) { yield return PointerSmokeHooks.Dirty(driver); yield break; }
+            var target = Target();
+            yield return driver.Tap(target, "dirty tap 1");
+            yield return driver.Tap(target, "dirty tap 2"); // a second tap while the first animates
+        }
+
+        static IEnumerator RetryResets()
+        {
+            RequireHooks();
+            yield return LoadAndSettle(PointerSmokeHooks.InteractiveLevel);
+            string fresh = Snapshot();
+            yield return DirtyLevel();
+            if (Snapshot() == fresh)
+                throw new InvalidOperationException("the dirtying taps changed nothing; fix TapTarget/BoardState before trusting this check");
+            yield return driver.TapButton(overlay.RetryButton, "retry");
+            yield return Seconds(SettleSeconds);
+            if (Snapshot() != fresh)
+                throw new InvalidOperationException("Retry did not restore the fresh state:\n" + Snapshot() + "\nexpected\n" + fresh);
+            Record("switch-retry-resets", true, "board, pending input and inventory equal a fresh load");
+        }
+
+        static IEnumerator SwitchClearsInput()
+        {
+            RequireHooks();
+            int level = PointerSmokeHooks.InteractiveLevel;
+            int next = (level + 1) % session.Catalog.Count;
+            yield return LoadAndSettle(next);
+            string freshNext = Snapshot();
+            yield return LoadAndSettle(level);
+            yield return DirtyLevel();
+            yield return driver.TapButton(overlay.NextButton, "next while input is pending");
+            yield return Until(() => session.CurrentLevel == next, "CurrentLevel == " + next);
+            yield return Seconds(SettleSeconds);
+            if (PointerSmokeHooks.PendingInput() != 0 || Snapshot() != freshNext)
+                throw new InvalidOperationException("state leaked into the next level:\n" + Snapshot() + "\nexpected\n" + freshNext);
+            Record("switch-clears-input", true, "pending input, board and inventory equal a fresh load of level " + (next + 1));
+        }
+
+        /// <summary>A switcher button placed over a board target must take the click, and the board must not.</summary>
+        static IEnumerator UiBlocksGameplay()
+        {
+            RequireHooks();
+            yield return LoadAndSettle(PointerSmokeHooks.InteractiveLevel);
+            string fresh = Snapshot();
+            var target = Target();
+            yield return driver.Tap(target, "control tap");          // the target must respond when nothing covers it
+            if (Snapshot() == fresh)
+                throw new InvalidOperationException("control tap changed nothing: the check would pass vacuously");
+            yield return LoadAndSettle(PointerSmokeHooks.InteractiveLevel);
+            fresh = Snapshot();
+            if (overlay.GridOpen)
+            {
+                Record("ui-blocks-gameplay", false, "the level grid was open before the click, so the check is meaningless");
+                yield break;
+            }
+            var rect = (RectTransform)overlay.OpenGridButton.transform;
+            Vector3 originalPosition = rect.position;
+            try
+            {
+                Vector2 at = target();
+                rect.position = new Vector3(at.x, at.y, originalPosition.z); // overlay canvas: world == screen pixels
+                yield return Frames(2);
+                yield return driver.Tap(() => at, "click switcher button over the board");
+                yield return Frames(2);
+            }
+            finally { rect.position = originalPosition; }
+            bool uiGotIt = overlay.GridOpen;
+            yield return Seconds(SettleSeconds); // a late gameplay reaction must show before the comparison
+            overlay.CloseGrid();
+            if (!uiGotIt)
+                throw new InvalidOperationException("the switcher button did not receive the click (grid did not open)");
+            if (Snapshot() != fresh)
+                throw new InvalidOperationException("a gameplay tap registered under the switcher button");
+            Record("ui-blocks-gameplay", true, "button took the click, board state unchanged");
+        }
+
+        static IEnumerator MechanicCheck(PointerSmokeHooks.MechanicProbe probe)
+        {
+            if (probe.Interact == null || probe.Verify == null)
+                throw new InvalidOperationException("probe needs Interact and Verify");
+            yield return LoadAndSettle(probe.LevelIndex);
+            probe.Setup?.Invoke();
+            int before = driver.EventsSent;
+            yield return probe.Interact(driver);
+            if (driver.EventsSent == before)
+                throw new InvalidOperationException("no pointer event was sent: a direct call is setup, not interaction");
+            yield return Seconds(SettleSeconds);
+            string problem = probe.Verify();
+            if (problem != null) throw new InvalidOperationException(problem);
+            Record("mechanic-" + probe.Id, true, (driver.EventsSent - before) + " pointer press(es) on level " + (probe.LevelIndex + 1));
+        }
+
+        static IEnumerator SampleWin()
+        {
+            var sample = PointerSmokeHooks.Sample;
+            if (sample == null || sample.Moves.Count == 0 || string.IsNullOrEmpty(sample.Source))
+                throw new InvalidOperationException("no sample solution (moves and source) configured");
+            int wins = 0;
+            Action onWon = () => wins++;
+            session.Won += onWon;
+            var log = new StringBuilder("source: " + sample.Source + "\nlevel: " + (sample.LevelIndex + 1) + "\n");
+            try
+            {
+                yield return LoadAndSettle(sample.LevelIndex);
+                int n = 0;
+                foreach (var move in sample.Moves)
+                {
+                    n++;
+                    log.AppendLine(n + "\t" + move.Description);
+                    yield return driver.Tap(move.ScreenPosition, move.Description);
+                    yield return Seconds(move.WaitAfterSeconds);
+                }
+                yield return Until(() => wins > 0, "Won after the last move", WinTimeoutSeconds);
+                yield return Seconds(SettleSeconds);
+            }
+            finally
+            {
+                session.Won -= onWon;
+                File.WriteAllText(Path.Combine(evidenceDir, "moves.txt"), log.ToString(), new UTF8Encoding(false));
+            }
+            if (wins != 1) throw new InvalidOperationException("Won raised " + wins + " times, expected exactly once");
+            Record("sample-win", true, sample.Moves.Count + " pointer moves won level " + (sample.LevelIndex + 1) + " (moves.txt)");
+        }
+    }
+}
+#endif

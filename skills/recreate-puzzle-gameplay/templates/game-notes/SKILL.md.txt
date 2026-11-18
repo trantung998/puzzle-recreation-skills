@@ -1,0 +1,168 @@
+---
+name: <game-slug>-notes
+description: Use when working on <Game Name> recreation in <project path> - its original levels, mechanics, visuals, audio, Assets/<GameSlug>/ code, verification runs or a follow-up fix, using the work directory <workdir>. Also for ghi chú tái tạo <Game Name>, sửa cơ chế, kiểm chứng lại.
+---
+
+# <Game Name> recreation notes
+
+<!-- RENDERING (delete this block after rendering)
+Rendered by recreate-puzzle-gameplay, phase game-notes, to
+<project>/.agents/skills/<game-slug>-notes/SKILL.md.
+
+Placeholders:
+- <game-slug>: lowercase kebab-case skill ID from progress.json "slug":
+    python3 -c "import re,sys;print(re.sub(r'(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=[0-9])','-',sys.argv[1]).lower())" <slug>
+  TileTwister -> tile-twister; 2048Puzzle -> 2048-puzzle (a leading digit stays; skill IDs
+  allow digits); Match3Saga -> match-3-saga. The result must match ^[a-z0-9]+(-[a-z0-9]+)*$
+  and equal the directory name.
+- <GameSlug>: progress.json "slug" unchanged. <Id>: the C# namespace recorded in decisions.md.
+- <Game Name>: the app label from the build (decompile/triage.json or the manifest), else the
+  slug split into words ("Tile Twister").
+- Frontmatter: only name and description; description on one line, under 1024 characters,
+  starting "Use when working on <Game Name> recreation in <project path>". Write paths with
+  forward slashes; if the line then contains ": " or " #", wrap the whole value in double quotes.
+- Fill every table from files of THIS run: progress.json, decisions.md, evidence/,
+  checks/<final run-id>/, Assets/<GameSlug>/PROVENANCE.md. Copy no Parking Loop or other
+  game's content. A row with no source in this run is deleted, not guessed.
+- If the target directory already exists and its source map names a different work
+  directory, write <game-slug>-recreation-notes instead (name and directory) and append an
+  EVENT line to decisions.md.
+-->
+
+Project-specific companion to the general puzzle recreation skills
+(`puzzle-evidence-extraction`, `puzzle-gameplay-build`, `puzzle-gameplay-verification`).
+It records where this game's evidence and code live and what was learned. It is not
+permission to implement unrequested mechanics: investigation produces findings,
+implementation produces the requested change and its checks.
+
+## Start with the current project
+
+1. Read [the source map](#source-map) below, then `<workdir>/progress.json`,
+   `<workdir>/decisions.md` and `<project>/ProjectSettings/ProjectVersion.txt`.
+2. Read only the evidence and code for the requested mechanic. The historical baseline is
+   <N> base levels on Unity <version>, final run `checks/<run-id>/` on <date>; inspect the
+   current files before relying on it.
+3. Load the general skills for the phase you are in. Editor control: `unity-pipeline` or
+   `unity-cli`. New decompile work: `unity-apk-decompile`.
+4. Keep unrelated edits, Unity GUIDs and `.meta` files. Never commit, stash or reset.
+   Never save, discard or replace a user scene.
+
+## Establish the behavior contract
+
+Before changing behavior, write the claim rows (template in `puzzle-evidence-extraction`)
+for the requested mechanic and label each:
+
+| Label | Meaning |
+|---|---|
+| Proven | Original bytes, schema, native branch, prefab or reference frame proves this exact claim |
+| Observed | A reference frame/video or a current Unity interaction shows it; say which |
+| Inferred | A reconstruction choice that explains the evidence; not recovered behavior |
+| Unknown | Missing, contradictory or insufficient evidence |
+
+Match the source to the question: level membership and fields from the original catalog
+and decoded JSON with hashes; eligibility, capacity, order and reset from native branches
+plus schema; appearance from references and the active prefab, mesh GUIDs and materials;
+interaction from real pointer events. An `Inferred` choice gets a `decisions.md` line when
+you make it.
+
+## Recover only the requested data and assets
+
+- Reuse `<workdir>/decompile/` and `<workdir>/evidence/` when `progress.json`
+  `inputs.apk_sha256` still equals the APK's SHA-256. Re-run a tool only for what is missing.
+- Select levels by exact name or path ID: <naming rule, e.g. `Stage_###` base names>.
+  Excluded variants: <list from manifest `excluded_variants`, with reasons>.
+- Level encoding: <encoding chain from the manifest, e.g. aligned string -> base64 -> gzip -> JSON>.
+- Data beyond what the original consumer reads is not played: <bounds found, with method>.
+- Shaders exported by AssetRipper are placeholders. In use: <reconstructed shader names>,
+  "original materials and textures with a reconstructed shader".
+
+## Implement at the owning layer
+
+First describe the cause in the existing code, data or assumption.
+
+| Responsibility | Starting point (`Assets/<GameSlug>/`) |
+|---|---|
+| Level catalog and loading | `Runtime/LevelCatalog.cs`, `Resources/<GameSlug>/Levels/` |
+| Rules, legality, state, win/fail | `Runtime/<model files>` |
+| Load/teardown, input acceptance, animation sequencing, audio, HUD events | `Runtime/GameSession.cs`, `Runtime/<Id>Game.cs` |
+| Presentation | `Runtime/<view files>` |
+| Level switcher | `Runtime/LevelSwitcherOverlay.cs` |
+| Model contracts, pointer smoke | `Editor/ModelContractRunner.cs`, `Editor/PointerSmoke.cs` |
+| Imported and reconstructed assets | `PROVENANCE.md` |
+
+Conventions of this game: <index base, coordinate origin, queue/stack order, field names
+kept from the original JSON>.
+
+Input across animation: <busy policy, duplicate taps, reservation and booster timing,
+reset on load, as recorded in decisions.md>.
+
+Make the smallest change at the cause. No retries, clamps, fallback materials or extra
+rotations to hide an unproven cause.
+
+## Verify rules, interaction and appearance separately
+
+1. Model contracts from claim rows, including reject and boundary rows. Expected values
+   come from the source column, not from the code under test.
+2. Compile outside Play Mode and read the result; a submitted request is not a compile.
+3. Real Input System pointer events for the changed path; a direct method call is setup.
+   Wait for the receipt, read `report.txt`, judge with `check_evidence.py --strict`.
+4. Screenshots portrait and landscape for every affected level, beside the reference.
+5. Only the last run on the final code and assets counts; an older PASS is history.
+
+## Lessons that must survive reuse
+
+- <lesson from this run, with the evidence path that taught it>
+- <a check that passed while the result was still wrong, and what caught it>
+- <a tool limitation that is not evidence about the game>
+
+## Finish at the declared boundary
+
+Deliver changed paths, source-backed rules with labels, final compile/model/pointer
+results, reference comparisons, unresolved limits and the evidence directory. Restore
+temporary Editor state. Stop when the requested behavior and its checks are satisfied.
+
+## Source map
+
+Snapshot: <date of the final run>. These are starting points and historical receipts, not
+a fresh verification.
+
+### Workspace identities
+
+| Purpose | Absolute path |
+|---|---|
+| Target project | `<project path>` |
+| Original package | `<apk path>` (SHA-256 `<apk_sha256>`) |
+| Work directory | `<workdir>` |
+| References | `<photo/video paths, or "none supplied">` |
+| Decompile output | `<workdir>/decompile/` |
+| Asset export | `<workdir>/decompile/export/ExportedProject/Assets` |
+| Tool root | `<root from progress.json tools>` |
+
+### Data and source behavior
+
+| Entry | Use |
+|---|---|
+| `evidence/levels/manifest.json` | Selected base levels, path IDs, source container, encoding, hashes |
+| `evidence/mechanics.md` | Labelled claim rows per mechanic |
+| `evidence/visuals.md` | Prefabs, GUIDs, materials, shaders, VFX, animation, audio, camera, HUD |
+| `evidence/native/` | Native pseudocode read for the rules |
+| `decompile/il2cpp-out/dump.cs` | Schema: classes, fields, offsets, method RVAs |
+| `decisions.md` | Every Inferred choice and every project change |
+
+Backend and ABI: <IL2CPP arm64 / IL2CPP armv7 / Mono>; Ghidra address = image base
+<0x100000 or 0x10000> + RVA.
+
+### Mechanics
+
+| Mechanic | Levels | Key native methods | Label of the core rule |
+|---|---|---|---|
+| `<id>` | <levels> | <method index, name, RVA> | <label> |
+
+### Historical checks
+
+| Run | What it established |
+|---|---|
+| `checks/<run-id>/verification-report.md` | <statuses of items 1-7 on <date>> |
+
+No historical run establishes standalone or device behavior, completion of every puzzle,
+or identical original shading.

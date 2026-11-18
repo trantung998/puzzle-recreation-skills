@@ -1,0 +1,234 @@
+// TEMPLATE — unverified; adapt and verify in the target project.
+// Editor assembly only (__GAME_NAMESPACE__.Editor.asmdef references __GAME_NAMESPACE__.Runtime); the body is
+// also wrapped in #if UNITY_EDITOR. Copy to ModelContractRunner.cs, replace __GAME_NAMESPACE__, search for
+// "ADAPT": every ADAPT is filled in.
+//
+// Independent model contracts, run in Edit Mode without a scene:
+//   ModelContractRunner.Run()          prints and returns the summary line, writes model.txt
+//   ModelContractRunner.Run(dir)       same, into an explicit directory (use a fresh checks/<run-id>/)
+//   ModelContractRunner.RunBatch()     for -executeMethod; exit code 0 only when nothing failed
+// Summary: "contracts=<n> failed=<m> data=<k> coverage=<c>"
+//   contracts  number of Contract cases (claim rows) that ran, and nothing else
+//   data       number of level data lines (levels-count and level-<n>-data)
+//   coverage   number of coverage.<mechanic>.<case> lines
+//   failed     failed lines of every kind (contracts, data, coverage and meta lines), so failed=0 means all clear
+// model.txt has one line per entry: <id> TAB <PASS|FAIL> TAB <detail>. Without a directory, Run() uses
+// -checksDir <dir> or the PUZZLE_CHECKS_DIR environment variable; with neither it creates a fresh directory
+// under the system temp folder and prints its path (copy model.txt into checks/<run-id>/ afterwards). It
+// refuses to overwrite an existing model.txt: a file from an earlier run is not this run's result.
+// model.txt is always written, even when building the contract list throws (that becomes a FAIL line).
+//
+// Rules for what goes in here
+//   - The expected value is copied from the claim row's "Exact source" in evidence/mechanics.md (native
+//     branch, original data, reference frame). It is never read back from the model, or computed by code
+//     under test, and never copied from a model's own output.
+//   - Cover reject and boundary rows, not only accept. A mechanic with no reject or no boundary contract
+//     fails the coverage line unless NotApplicable holds a recorded reason.
+//   - Zero contracts, a wrong level count or an unfilled hook is a FAIL, never a PASS.
+//   - Level data (spec item 1): CompareLevel compares what the model built with an independent reading of
+//     the raw original file (counts, kinds, positions, attributes after decode), not a byte hash.
+#if UNITY_EDITOR
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using UnityEditor;
+using UnityEngine;
+
+namespace __GAME_NAMESPACE__.EditorTools
+{
+    public static class ModelContractRunner
+    {
+        public sealed class Contract
+        {
+            public string Mechanic;     // short-id from evidence/mechanics.md
+            public string Case;         // accept | reject | boundary | ordering | reset
+            public string Claim;        // claim row number in mechanics.md
+            public string Source;       // the row's Exact source, copied verbatim
+            public Func<string> Test;   // null when the model gives the expected result, else what differed
+
+            public string Id => Mechanic + ".claim" + Claim + "." + Case;
+        }
+
+        // ADAPT: progress.json inputs.levels. Zero means "not set" and fails.
+        public static int ExpectedLevelCount = 0;
+
+        // ADAPT: every short-id in evidence/mechanics.md.
+        public static string[] Mechanics = new string[0];
+
+        // ADAPT: "<mechanic>:<reject|boundary>" -> why the case cannot exist (recorded as a PASS line with the reason).
+        public static readonly Dictionary<string, string> NotApplicable = new Dictionary<string, string>();
+
+        /// <summary>Failed lines of the last Run (all kinds); -1 before the first run.</summary>
+        public static int LastFailed = -1;
+
+        /// <summary>ADAPT: one Contract per claim row. Build the model from an original level file, act, compare.</summary>
+        static IEnumerable<Contract> Contracts()
+        {
+            // Example for a fictional game "Tile Twister", ice tile, claim rows 1 to 3 (illustrative only):
+            //   yield return new Contract {
+            //       Mechanic = "ice", Case = "reject", Claim = "1",
+            //       Source = "evidence/native/4188_Cell_OnTap.c, method 4188, branch if (this->ice > 0)",
+            //       Test = () => {
+            //           var model = new TileTwisterModel(TileTwisterLevelData.Parse(Raw("Stage_006")));
+            //           model.Tap(2, 3);                                            // cell (2,3) has ice = 2
+            //           return model.IceAt(2, 3) == 1 && !model.PieceMoved ? null
+            //               : "expected ice 1 and no move; got ice " + model.IceAt(2, 3);   // 1 comes from the source row
+            //       } };
+            //   yield return new Contract {
+            //       Mechanic = "ice", Case = "boundary", Claim = "3",
+            //       Source = "evidence/native/4120_BoardBuilder_Build.c, method 4120, min(ice, 3)",
+            //       Test = () => { /* copy of Stage_009 with ice = 5 must need exactly three taps */ return null; } };
+            yield break;
+        }
+
+        /// <summary>
+        /// ADAPT: compare the model built from level <paramref name="index"/> with an independent reading of
+        /// <paramref name="raw"/> (original field names). Return null when element counts, kinds, positions and
+        /// attributes agree, else describe the first difference. Do not compare a byte hash and do not use the
+        /// game's own parser as the oracle. Read only as far as the original consumer does (data beyond a
+        /// capacity is not played).
+        /// </summary>
+        static string CompareLevel(int index, TextAsset raw)
+        {
+            throw new NotImplementedException("ADAPT: CompareLevel is not implemented");
+        }
+
+        static TextAsset Raw(string levelName) => Resources.Load<TextAsset>(LevelCatalog.ResourceFolder + levelName);
+
+        // ---- runner ----------------------------------------------------------------------------------------
+
+        enum Kind { Contract, Data, Coverage, Meta }
+
+        public static string Run()
+        {
+            var args = Environment.GetCommandLineArgs();
+            int at = Array.IndexOf(args, "-checksDir");
+            var dir = at >= 0 && at + 1 < args.Length ? args[at + 1] : Environment.GetEnvironmentVariable("PUZZLE_CHECKS_DIR");
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                dir = Path.Combine(Path.GetTempPath(), "model-contracts-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfff"));
+                Debug.Log("ModelContractRunner: no -checksDir or PUZZLE_CHECKS_DIR; writing to the fresh directory " + dir);
+            }
+            return Run(dir);
+        }
+
+        public static string Run(string outputDirectory)
+        {
+            outputDirectory = Path.GetFullPath(outputDirectory);
+            Directory.CreateDirectory(outputDirectory);
+            var file = Path.Combine(outputDirectory, "model.txt");
+            if (File.Exists(file))
+                throw new InvalidOperationException("model.txt exists: " + file + ". Use a fresh checks/<run-id>/ directory.");
+
+            var lines = new List<string>();
+            var counts = new Dictionary<Kind, int>
+            {
+                { Kind.Contract, 0 }, { Kind.Data, 0 }, { Kind.Coverage, 0 }, { Kind.Meta, 0 }
+            };
+            int failed = 0;
+            void Add(Kind kind, string id, bool pass, string detail)
+            {
+                counts[kind]++;
+                if (!pass) failed++;
+                lines.Add(id + "\t" + (pass ? "PASS" : "FAIL") + "\t" + (detail ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' '));
+            }
+
+            try
+            {
+                LevelCatalog catalog = null;
+                try
+                {
+                    catalog = new LevelCatalog();
+                    Add(Kind.Data, "levels-count", ExpectedLevelCount > 0 && catalog.Count == ExpectedLevelCount,
+                        "catalog has " + catalog.Count + " levels, expected " + ExpectedLevelCount + " (ExpectedLevelCount must be set)");
+                }
+                catch (Exception ex) { Add(Kind.Data, "levels-count", false, ex.GetType().Name + ": " + ex.Message); }
+
+                if (catalog != null)
+                {
+                    for (int i = 0; i < catalog.Count; i++)
+                    {
+                        try
+                        {
+                            var problem = CompareLevel(i, catalog.LoadRaw(i));
+                            Add(Kind.Data, "level-" + (i + 1) + "-data", problem == null, problem ?? catalog.NameAt(i) + " matches the original data");
+                        }
+                        catch (Exception ex) { Add(Kind.Data, "level-" + (i + 1) + "-data", false, ex.GetType().Name + ": " + ex.Message); }
+                    }
+                }
+
+                // Building the list can throw (it runs game code); the contracts yielded before that still run.
+                var contracts = new List<Contract>();
+                try
+                {
+                    foreach (var contract in Contracts())
+                        if (contract != null) contracts.Add(contract);
+                }
+                catch (Exception ex) { Add(Kind.Meta, "contracts-build", false, ex.GetType().Name + ": " + ex.Message); }
+
+                var seen = new Dictionary<string, HashSet<string>>();
+                foreach (var contract in contracts)
+                {
+                    if (!seen.TryGetValue(contract.Mechanic ?? "", out var cases))
+                        seen[contract.Mechanic ?? ""] = cases = new HashSet<string>();
+                    cases.Add(contract.Case ?? "");
+                    try
+                    {
+                        if (string.IsNullOrEmpty(contract.Source)) throw new InvalidOperationException("contract has no Exact source");
+                        var problem = contract.Test();
+                        Add(Kind.Contract, contract.Id, problem == null, problem ?? "expected result from: " + contract.Source);
+                    }
+                    catch (Exception ex) { Add(Kind.Contract, contract.Id, false, ex.GetType().Name + ": " + ex.Message); }
+                }
+
+                if (Mechanics.Length == 0)
+                    Add(Kind.Meta, "coverage", false, "Mechanics is empty: list every short-id from evidence/mechanics.md");
+                foreach (var mechanic in Mechanics)
+                {
+                    seen.TryGetValue(mechanic, out var cases);
+                    foreach (var required in new[] { "accept", "reject", "boundary" })
+                    {
+                        var id = "coverage." + mechanic + "." + required;
+                        if (cases != null && cases.Contains(required)) Add(Kind.Coverage, id, true, "contract present");
+                        else if (NotApplicable.TryGetValue(mechanic + ":" + required, out var why) && !string.IsNullOrWhiteSpace(why))
+                            Add(Kind.Coverage, id, true, "not applicable: " + why);
+                        else Add(Kind.Coverage, id, false, "no " + required + " contract and no recorded reason");
+                    }
+                }
+
+                if (counts[Kind.Contract] == 0)
+                    Add(Kind.Meta, "contracts-none", false, "no mechanic contracts ran");
+            }
+            catch (Exception ex)
+            {
+                Add(Kind.Meta, "runner", false, ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                File.WriteAllText(file, string.Join("\n", lines) + "\n", new UTF8Encoding(false));
+            }
+
+            LastFailed = failed;
+            var summary = "contracts=" + counts[Kind.Contract] + " failed=" + failed +
+                          " data=" + counts[Kind.Data] + " coverage=" + counts[Kind.Coverage];
+            Debug.Log("ModelContractRunner " + summary + " -> " + file);
+            return summary;
+        }
+
+        /// <summary>For -executeMethod. Reads -checksDir or PUZZLE_CHECKS_DIR; exit code 0 only when nothing failed.</summary>
+        public static void RunBatch()
+        {
+            LastFailed = -1;
+            try { Run(); }
+            catch (Exception ex)
+            {
+                Debug.LogError("ModelContractRunner: " + ex);
+                EditorApplication.Exit(2);
+                return;
+            }
+            EditorApplication.Exit(LastFailed == 0 ? 0 : 1);
+        }
+    }
+}
+#endif

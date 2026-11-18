@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}/decompile-python/Scripts/python.exe" "$@"
