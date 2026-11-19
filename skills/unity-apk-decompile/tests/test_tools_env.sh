@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ENVSH="$HERE/../scripts/tools-env.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-pass=0; fails=""; total=10
+pass=0; fails=""; total=12
 ok() { pass=$((pass+1)); }
 bad() { fails="$fails $1"; }
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1;; *) WIN=0;; esac
@@ -68,6 +68,13 @@ printf '#!/usr/bin/env bash\necho path-dotnet\n' > "$TMP/t10/sdk/$dn"
 chmod +x "$TMP/t10/sdk/$dn"
 out=$( (unset DOTNET_ROOT; export UNITY_DECOMPILE_TOOLS="$TMP/t10/tools" PATH="$TMP/t10/sdk:$PATH"; source "$ENVSH" 2>/dev/null; echo "$DOTNET_ROOT") )
 case "$out" in */t10/sdk) ok;; *) bad case10;; esac
+
+# case11: a value the user exported survives sourcing
+out=$( (export UNITY_DECOMPILE_TOOLS="$TMP/t1" GHIDRA_HEADLESS_MAXMEM=12G; source "$ENVSH" 2>/dev/null; echo "$GHIDRA_HEADLESS_MAXMEM") )
+[ "$out" = "12G" ] && ok || bad case11
+# case12: unset stays unset so ghidra_decompile.sh applies its 16G default
+out=$( (unset GHIDRA_HEADLESS_MAXMEM; export UNITY_DECOMPILE_TOOLS="$TMP/t1"; source "$ENVSH" 2>/dev/null; echo "${GHIDRA_HEADLESS_MAXMEM-unset}") )
+[ "$out" = "unset" ] && ok || bad case12
 
 if [ $pass -eq $total ]; then echo "PASS $total/$total"; exit 0; fi
 echo "FAIL$fails"; exit 1
