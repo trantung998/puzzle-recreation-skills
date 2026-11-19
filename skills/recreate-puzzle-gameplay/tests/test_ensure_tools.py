@@ -33,6 +33,29 @@ def tar_bytes(members):
     return buf.getvalue()
 
 
+def tar_entries(entries):
+    """Tar.gz from (name, kind, payload): kind file (payload bytes), sym (payload linkname) or dir."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as t:
+        for name, kind, payload in entries:
+            info = tarfile.TarInfo(name)
+            if kind == "file":
+                info.size = len(payload)
+                t.addfile(info, io.BytesIO(payload))
+                continue
+            if kind == "sym":
+                info.type = tarfile.SYMTYPE
+                info.linkname = payload
+                info.mode = 0o777
+            elif kind == "dir":
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+            else:
+                raise ValueError(kind)
+            t.addfile(info)
+    return buf.getvalue()
+
+
 def entry(tid, folder, url, sha=None, archive="zip", detect=None, post="none", **extra):
     plat = {"url": url, "sha256": sha, "archive": archive}
     e = {
@@ -55,6 +78,18 @@ class FakeFetch:
             f.write(self.blobs[url])
 
 
+def pin(tools, fetch):
+    """Give every unpinned url source a sha256 (the blob's when fetch knows the url, else a dummy)."""
+    for tool in tools:
+        for src in tool.values():
+            if isinstance(src, dict) and "url" in src and src.get("sha256") is None:
+                blobs = getattr(fetch, "blobs", None) or {}
+                url = src["url"]
+                src["sha256"] = hashlib.sha256(blobs[url]).hexdigest() if url in blobs else "0" * 64
+                src.setdefault("sha256_source", "publisher-api")
+    return tools
+
+
 class EnsureToolsTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -66,8 +101,8 @@ class EnsureToolsTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def ensure(self, tools, fetch, check=False, **kw):
-        return ensure_tools.ensure(self.root, {"schema": 1, "tools": tools}, check=check, fetch=fetch,
-                                   platform="windows", **kw)
+        return ensure_tools.ensure(self.root, {"schema": 1, "tools": pin(tools, fetch)}, check=check,
+                                   fetch=fetch, platform="windows", **kw)
 
     def make_present(self, folder, rel="bin/tool.txt"):
         p = os.path.join(self.root, folder, *rel.split("/"))
@@ -133,12 +168,14 @@ class EnsureToolsTests(unittest.TestCase):
         dl = os.path.join(self.root, "downloads")
         self.assertEqual(os.listdir(dl) if os.path.isdir(dl) else [], [])
 
-    def test_null_sha_records_computed_hash(self):
-        url = "https://x.invalid/ghidra.zip"
-        blob = zip_bytes({"ghidra-1/bin/tool.txt": b"hi"})
-        res = self.ensure([entry("ghidra", "ghidra-1", url, sha=None)], FakeFetch({url: blob}))
-        self.assertEqual(res["tools"]["ghidra"]["status"], "installed")
-        self.assertIn(hashlib.sha256(blob).hexdigest(), res["tools"]["ghidra"]["detail"])
+    def test_unpinned_url_refused_without_fetch(self):
+        url = "https://x.invalid/t.zip"
+        fetch = FakeFetch({url: zip_bytes({"t-1/bin/tool.txt": b"1"})})
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [entry("t", "t-1", url)]},
+                                  fetch=fetch, platform="windows")  # no pin()
+        self.assertEqual(res["tools"]["t"]["status"], "failed")
+        self.assertIn("sha256", res["tools"]["t"]["detail"])
+        self.assertEqual(fetch.calls, [])
 
     def test_matching_sha_installs(self):
         url = "https://x.invalid/ghidra.zip"
@@ -171,7 +208,7 @@ class EnsureToolsTests(unittest.TestCase):
     def test_check_mode_exit_code_3(self):
         mpath = os.path.join(self.tmp, "m.json")
         with open(mpath, "w") as f:
-            json.dump({"schema": 1, "tools": [entry("ghidra", "ghidra-1", "https://x.invalid/g.zip")]}, f)
+            json.dump({"schema": 1, "tools": pin([entry("ghidra", "ghidra-1", "https://x.invalid/g.zip")], None)}, f)
         fetch = FakeFetch({})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -212,6 +249,68 @@ class EnsureToolsTests(unittest.TestCase):
         res = self.ensure([entry("t", "t-1", url, archive="tar.gz")], fetch)
         self.assertEqual(res["tools"]["t"]["status"], "installed")
         self.assertTrue(os.path.isfile(os.path.join(self.root, "t-1", "bin", "tool.txt")))
+
+    def assert_no_partials(self):
+        self.assertEqual([n for n in os.listdir(self.root) if n.endswith(".partial")], [])
+
+    def test_tar_symlink_chain_rejected(self):
+        # x -> . ; x/y -> .. (lexically inside, really dest/..) ; y/pwned.txt then lands outside dest
+        url = "https://x.invalid/evil.tar.gz"
+        fetch = FakeFetch({url: tar_entries([("x", "sym", "."), ("x/y", "sym", ".."),
+                                             ("y/pwned.txt", "file", b"p")])})
+        res = self.ensure([entry("evil", "evil-1", url, archive="tar.gz")], fetch)
+        self.assertEqual(res["tools"]["evil"]["status"], "failed")
+        found = [os.path.join(d, n) for d, _, names in os.walk(self.tmp) for n in names if n == "pwned.txt"]
+        self.assertEqual(found, [])
+        self.assert_no_partials()
+
+    def test_tar_symlink_chain_case_variant_rejected(self):
+        # on a case-insensitive filesystem (macOS, Windows) "x/y" is written through the symlink "X"
+        url = "https://x.invalid/evil.tar.gz"
+        fetch = FakeFetch({url: tar_entries([("X", "sym", "."), ("x/y", "sym", ".."),
+                                             ("y/pwned.txt", "file", b"p")])})
+        res = self.ensure([entry("evil", "evil-1", url, archive="tar.gz")], fetch)
+        self.assertEqual(res["tools"]["evil"]["status"], "failed")
+        found = [os.path.join(d, n) for d, _, names in os.walk(self.tmp) for n in names if n == "pwned.txt"]
+        self.assertEqual(found, [])
+        self.assert_no_partials()
+
+    def test_tar_link_target_through_symlink_rejected(self):
+        url = "https://x.invalid/evil.tar.gz"
+        fetch = FakeFetch({url: tar_entries([("t-1/x", "sym", "."), ("t-1/z", "sym", "x/../../evil"),
+                                             ("t-1/bin/tool.txt", "file", b"1")])})
+        res = self.ensure([entry("t", "t-1", url, archive="tar.gz")], fetch)
+        self.assertEqual(res["tools"]["t"]["status"], "failed")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "t-1")))
+        self.assert_no_partials()
+
+    @unittest.skipIf(os.name == "nt", "symlink extraction needs privileges on Windows")
+    def test_tar_relative_symlink_like_macos_jdk_installs(self):
+        url = "https://x.invalid/jdk.tar.gz"
+        fetch = FakeFetch({url: tar_entries([
+            ("jdk/Contents/Home/lib/libjli.dylib", "file", b"l"),
+            ("jdk/Contents/MacOS/libjli.dylib", "sym", "../Home/lib/libjli.dylib"),
+            ("jdk/bin/tool.txt", "file", b"1")])})
+        res = self.ensure([entry("jdk", "jdk-1", url, archive="tar.gz", detect=["bin/tool.txt"])], fetch)
+        self.assertEqual(res["tools"]["jdk"]["status"], "installed", res)
+        link = os.path.join(self.root, "jdk-1", "Contents", "MacOS", "libjli.dylib")
+        self.assertTrue(os.path.islink(link))
+        with open(link, "rb") as f:
+            self.assertEqual(f.read(), b"l")
+
+    def test_crosses_symlink(self):
+        links = {"a/s", "t"}
+        cs = ensure_tools.crosses_symlink
+        self.assertFalse(cs("a/s", links))            # the symlink itself (last component)
+        self.assertTrue(cs("a/s/f", links))
+        self.assertTrue(cs("t/x", links))
+        self.assertTrue(cs("a/./s/f", links))
+        self.assertTrue(cs("b/../a/s/f", links))
+        self.assertFalse(cs("a/b/../c", links))
+        self.assertTrue(cs("..", links))              # pops above the archive root
+        self.assertTrue(cs("a/../../x", links))
+        self.assertFalse(cs("Contents/MacOS/../Home/lib/x", links))
+        self.assertTrue(cs("A/S/f", links))           # case-insensitive filesystems
 
     def test_non_https_url_rejected_without_fetch(self):
         fetch = FakeFetch({})
@@ -269,7 +368,8 @@ class EnsureToolsTests(unittest.TestCase):
                                            "Il2CppInspectorRedux.Legacy.CLI-linux-x64/Il2CppInspector.pdb": b"p"})})
         e = entry("il2cppinspector", "i-1", url, detect={"linux": ["Il2CppInspector"]}, post="exec-bits",
                   exec=["Il2CppInspector"])
-        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux", arch="x64")
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": pin([e], fetch)}, fetch=fetch, platform="linux",
+                                  arch="x64")
         self.assertEqual(res["tools"]["il2cppinspector"]["status"], "installed", res)
         exe = os.path.join(self.root, "i-1", "Il2CppInspector")
         self.assertTrue(os.path.isfile(exe))
@@ -281,7 +381,8 @@ class EnsureToolsTests(unittest.TestCase):
         fetch = FakeFetch({url: zip_bytes({"other": b"x"})})
         e = entry("il2cppinspector", "i-1", url, detect={"linux": ["other"]}, post="exec-bits",
                   exec=["Il2CppInspector"])
-        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux", arch="x64")
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": pin([e], fetch)}, fetch=fetch, platform="linux",
+                                  arch="x64")
         self.assertEqual(res["tools"]["il2cppinspector"]["status"], "failed")
         self.assertIn("Il2CppInspector", res["tools"]["il2cppinspector"]["detail"])
         self.assertFalse(os.path.exists(os.path.join(self.root, "i-1")))
@@ -432,7 +533,8 @@ class EnsureToolsTests(unittest.TestCase):
         self.make_present("req-1")
         opt = entry("opt", "opt-1", "https://x.invalid/o.zip", required=False)
         req = entry("req", "req-1", "https://x.invalid/r.zip")
-        mpath = self.write_manifest([req, opt])
+        fetch = FakeFetch({"https://x.invalid/o.zip": b"not a zip"})
+        mpath = self.write_manifest(pin([req, opt], fetch))
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = ensure_tools.main(["--check", "--root", self.root, "--manifest", mpath])
@@ -441,8 +543,7 @@ class EnsureToolsTests(unittest.TestCase):
         self.assertEqual(res["tools"]["req"]["status"], "present")
         self.assertEqual(code, 0)
         with contextlib.redirect_stdout(io.StringIO()):
-            code = ensure_tools.main(["--root", self.root, "--manifest", mpath],
-                                     fetch=FakeFetch({"https://x.invalid/o.zip": b"not a zip"}))
+            code = ensure_tools.main(["--root", self.root, "--manifest", mpath], fetch=fetch)
         self.assertEqual(code, 0)
         mpath = self.write_manifest([req, dict(opt, required=True)])
         with contextlib.redirect_stdout(io.StringIO()):
@@ -472,6 +573,12 @@ class EnsureToolsTests(unittest.TestCase):
             bad["windows"]["sha256_source"] = source
             with self.assertRaises(ValueError, msg=str((sha, source))):
                 ensure_tools.load_manifest(self.write_manifest([bad]))
+
+    def test_load_manifest_rejects_url_without_sha256(self):
+        e = entry("a", "a-1", "https://x.invalid/a.zip")
+        with self.assertRaises(ValueError) as cm:
+            ensure_tools.load_manifest(self.write_manifest([e]))
+        self.assertIn("sha256", str(cm.exception))
 
     def test_redirect_to_http_refused(self):
         import urllib.error
@@ -619,7 +726,7 @@ class EnsureToolsTests(unittest.TestCase):
         self.make_present("a-1")
         mpath = os.path.join(self.tmp, "m.json")
         with open(mpath, "w") as f:
-            json.dump({"schema": 1, "tools": [entry("a", "a-1", "https://x.invalid/a.zip")]}, f)
+            json.dump({"schema": 1, "tools": pin([entry("a", "a-1", "https://x.invalid/a.zip")], None)}, f)
         with contextlib.redirect_stdout(io.StringIO()):
             code = ensure_tools.main(["--root", self.root, "--manifest", mpath, "--progress", work],
                                      fetch=FakeFetch({}))

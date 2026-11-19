@@ -14,12 +14,14 @@ import hashlib
 import json
 import os
 import platform as _platform
+import posixpath
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import unicodedata
 import urllib.error
 import urllib.request
 import zipfile
@@ -66,7 +68,9 @@ def load_manifest(path):
         for key, src in tool.items():
             if isinstance(src, dict) and "url" in src:
                 sha = src.get("sha256")
-                if sha is not None and not SHA_RE.match(sha):
+                if not sha:
+                    raise ValueError("manifest: %s/%s has a url but no sha256" % (tool["id"], key))
+                if not isinstance(sha, str) or not SHA_RE.match(sha):
                     raise ValueError("manifest: bad sha256 for %s/%s" % (tool["id"], key))
                 source = src.get("sha256_source")
                 if (sha is None) != (source is None) or (source is not None and source not in SHA_SOURCES):
@@ -160,6 +164,35 @@ def contained(dest_real, rel):
     return target
 
 
+def _fs_key(path):
+    """Compare names the way case- and normalization-insensitive filesystems (macOS, Windows) do."""
+    return unicodedata.normalize("NFC", path).casefold()
+
+
+def _crosses(path, keys):
+    parts = path.replace("\\", "/").split("/")
+    stack = []
+    for i, part in enumerate(parts):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not stack:
+                return True
+            stack.pop()
+            continue
+        stack.append(part)
+        if i < len(parts) - 1 and _fs_key("/".join(stack)) in keys:
+            return True
+    return False
+
+
+def crosses_symlink(path, symlinks):
+    """True if resolving archive-relative `path` would follow a symlink in `symlinks` before its last
+    component, or climb above the archive root. Lexical checks such as contained() cannot see
+    symlinks that only exist once the archive is extracted (e.g. x -> . then x/y -> ..)."""
+    return _crosses(path, {_fs_key(s) for s in symlinks})
+
+
 def extract_zip(archive, dest):
     os.makedirs(dest)
     dest_real = os.path.realpath(dest)
@@ -197,10 +230,13 @@ def extract_tar(archive, dest):
     dest_real = os.path.realpath(dest)
     with tarfile.open(archive, "r:*") as tf:
         members = tf.getmembers()
+        symlinks = {_fs_key(safe_relpath(m.name)) for m in members if m.issym()}
         total = 0
         for m in members:
             rel = safe_relpath(m.name)
             contained(dest_real, rel)
+            if _crosses(rel, symlinks):
+                raise UnsafeArchive("archive member passes through a symlink: %r" % m.name)
             if m.isdir() or m.isreg():
                 total += m.size
             elif m.issym():
@@ -208,8 +244,13 @@ def extract_tar(archive, dest):
                 if link.startswith("/") or re.match(r"^[A-Za-z]:", link):
                     raise UnsafeArchive("absolute symlink: %r" % m.name)
                 contained(dest_real, os.path.join(os.path.dirname(rel), link))
+                if _crosses(posixpath.join(posixpath.dirname(rel), link), symlinks):
+                    raise UnsafeArchive("symlink target passes through a symlink: %r" % m.name)
             elif m.islnk():
-                contained(dest_real, safe_relpath(m.linkname))
+                target = safe_relpath(m.linkname)
+                contained(dest_real, target)
+                if _crosses(target, symlinks):
+                    raise UnsafeArchive("hardlink target passes through a symlink: %r" % m.name)
             else:
                 raise UnsafeArchive("unsupported tar member type: %r" % m.name)
         if total > MAX_EXTRACT_BYTES:
@@ -411,6 +452,9 @@ def install_archive(tool, root, platform, fetch, src):
     url = src["url"]
     if not isinstance(url, str) or not url.lower().startswith("https://"):
         return result("failed", tool, final, "refusing non-https url: %s" % url)
+    want = src.get("sha256")
+    if not want:
+        return result("failed", tool, final, "no pinned sha256 for %s; refusing an unverified download" % url)
     if os.path.exists(final):
         return result("failed", tool, final, "folder exists but is incomplete; delete it and re-run: " + final)
     ok = False
@@ -421,8 +465,7 @@ def install_archive(tool, root, platform, fetch, src):
         remove_file(archive)
         fetch(url, archive)
         digest = sha256_file(archive)
-        want = src.get("sha256")
-        if want and digest.lower() != want.lower():
+        if digest.lower() != want.lower():
             raise RuntimeError("sha256 mismatch for %s: expected %s, got %s" % (url, want.lower(), digest))
         extract(archive, src["archive"], partial)
         strip_single_top_dir(partial)
@@ -443,8 +486,7 @@ def install_archive(tool, root, platform, fetch, src):
             os.rmdir(downloads)
         except OSError:
             pass
-    how = "verified against manifest" if want else "computed; manifest has no pinned hash"
-    return result("installed", tool, final, "from %s; sha256=%s (%s)" % (url, digest, how))
+    return result("installed", tool, final, "from %s; sha256=%s (verified against manifest)" % (url, digest))
 
 
 def process_tool(tool, root, platform, check, fetch, runner, arch):
