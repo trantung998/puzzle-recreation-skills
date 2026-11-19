@@ -96,12 +96,19 @@ def main():
     lines = Path(a[0]).read_text(encoding="utf-8", errors="replace").splitlines()
     if a[1] == "--offset":
         name, off = a[2], int(a[3], 16)
+        visited, first = set(), True
         while name:
-            hits = find(lines, name)
+            all_hits = find(lines, name)
+            hits = [h for h in all_hits if (h[0], h[1]) not in visited]
             if not hits:
-                print(f"{name}: not found")
+                print(f"{name}: not found" if not all_hits else
+                      f"base chain loops back to {name}; the real base is probably a {name} from another assembly not in this dump")
                 return 1
-            _, n, b, block = hits[0]
+            if first and len(hits) > 1:
+                print(f"warning: {len(hits)} classes named {name}; using {hits[0][0] or 'global namespace'}", file=sys.stderr)
+            first = False
+            ns, n, b, block = hits[0]
+            visited.add((ns, n))
             for o, decl in fields(block):
                 if o == off and "static" not in decl and "const" not in decl:
                     print(f"{n}+{hex(off)}: {decl}")

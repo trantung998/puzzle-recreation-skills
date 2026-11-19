@@ -69,9 +69,37 @@ public class LevelDataService : IService // TypeDefIndex: 1429
 """
 
 
+# Il2CppDumper writes base names without namespace, so a class can name its own base.
+SELF_BASE = """\
+// Namespace: Game
+public class Button : Button // TypeDefIndex: 9
+{
+\t// Fields
+\tpublic int _clicks; // 0x40
+}
+"""
+
+# Two classes named Button in different namespaces; Game.Button's base is the UI one.
+SAME_NAME_BASE = """\
+// Namespace: Game
+public class Button : Button // TypeDefIndex: 9
+{
+\t// Fields
+\tpublic int _clicks; // 0x40
+}
+
+// Namespace: UnityEngine.UI
+public class Button : Selectable // TypeDefIndex: 10
+{
+\t// Fields
+\tprotected bool m_Interactable; // 0x10
+}
+"""
+
+
 def run(path, *args):
-    p = subprocess.run([sys.executable, "-I", SCRIPT, path, *args], capture_output=True, text=True)
-    return p.returncode, p.stdout
+    p = subprocess.run([sys.executable, "-I", SCRIPT, path, *args], capture_output=True, text=True, timeout=10)
+    return p.returncode, p.stdout, p.stderr
 
 
 class DumpClassTests(unittest.TestCase):
@@ -88,7 +116,7 @@ class DumpClassTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_inspector_class_listing(self):
-        rc, out = run(self.ins, "LevelDataService")
+        rc, out, _ = run(self.ins, "LevelDataService")
         self.assertEqual(rc, 0, out)
         self.assertIn("// Namespace: Global.Level", out)
         self.assertIn("0x18  private int _Seed_k__BackingField", out)
@@ -104,36 +132,53 @@ class DumpClassTests(unittest.TestCase):
         self.assertNotIn("FallbackLevel", outer)
 
     def test_inspector_global_namespace_after_namespace_block(self):
-        rc, out = run(self.ins, "GlobalThing")
+        rc, out, _ = run(self.ins, "GlobalThing")
         self.assertEqual(rc, 0, out)
         self.assertNotIn("Global.Level", out)
         self.assertIn("0x18  public int count", out)
 
     def test_inspector_methods_filter_and_nested(self):
-        rc, out = run(self.ins, "LevelDataService", "--methods", "GetClient")
+        rc, out, _ = run(self.ins, "LevelDataService", "--methods", "GetClient")
         self.assertIn("GetClientLevelData", out)
         self.assertNotIn("LevelDataService();", out)
-        rc, out = run(self.ins, "_Load_d__5")
+        rc, out, _ = run(self.ins, "_Load_d__5")
         self.assertEqual(rc, 0, out)
         self.assertIn("0x10  private int __1__state", out)
         self.assertIn("0x04CD0B94  private bool MoveNext();", out)
 
     def test_inspector_offset_walks_bases(self):
-        rc, out = run(self.ins, "--offset", "LevelDataService", "0x20")
+        rc, out, _ = run(self.ins, "--offset", "LevelDataService", "0x20")
         self.assertEqual((rc, out.strip()), (0, "LevelDataService+0x20: private Dictionary<int, int> _levelTable"))
-        rc, out = run(self.ins, "--offset", "LevelDataService", "0x10")
+        rc, out, _ = run(self.ins, "--offset", "LevelDataService", "0x10")
         self.assertEqual((rc, out.strip()), (0, "LevelBase+0x10: protected int _baseId"))
-        rc, out = run(self.ins, "--offset", "LevelDataService", "0x0")
+        rc, out, _ = run(self.ins, "--offset", "LevelDataService", "0x0")
         self.assertNotIn("_instance", out)
 
     def test_dumper_layout_still_works(self):
-        rc, out = run(self.dmp, "LevelDataService")
+        rc, out, _ = run(self.dmp, "LevelDataService")
         self.assertEqual(rc, 0, out)
         self.assertIn("// Namespace: Global.Level", out)
         self.assertIn("0x18  private int <Seed>k__BackingField", out)
         self.assertIn("0x4DAC410  public LevelData GetClientLevelData(int levelDataNo) { }", out)
-        rc, out = run(self.dmp, "--offset", "LevelDataService", "0x18")
+        rc, out, _ = run(self.dmp, "--offset", "LevelDataService", "0x18")
         self.assertEqual(out.strip(), "LevelDataService+0x18: private int <Seed>k__BackingField")
+
+    def test_offset_self_named_base_stops(self):
+        path = os.path.join(self._tmp.name, "self.cs")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(SELF_BASE)
+        rc, out, _ = run(path, "--offset", "Button", "0x10")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("loops", out)
+
+    def test_offset_resolves_same_name_base_in_other_namespace(self):
+        path = os.path.join(self._tmp.name, "same.cs")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(SAME_NAME_BASE)
+        rc, out, err = run(path, "--offset", "Button", "0x10")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("m_Interactable", out)
+        self.assertIn("2 classes named Button", err)
 
 
 if __name__ == "__main__":
