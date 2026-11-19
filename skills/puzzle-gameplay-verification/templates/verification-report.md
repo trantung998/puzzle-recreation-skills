@@ -40,7 +40,7 @@ BLOCKED and NOT RUN are not PASS and are not FAIL. Never write PASS for them.
 | pointer smoke, portrait | | | | |
 | pointer smoke, landscape | | | | |
 
-Command used (full set in SKILL.md Procedure step 5; record the judge-time `--since`, `skipped` must be empty): `python3 <skill dir>/scripts/check_evidence.py --strict --receipt <path> --since <ISO time> --expect-levels <N> --require-checks ... --per-level-images "level-{n}-<orientation>-*.png" --model <model.txt> --sources <paths> --sources-manifest <file>`
+Command used (full set in SKILL.md Procedure step 5; record the judge-time `--since`, `skipped` must be empty): `python3 <skill dir>/scripts/check_evidence.py --strict --receipt <path> --since <ISO time> --expect-levels <N> --require-checks ... --per-level-images "level-{n}-<orientation>-*.png" --model <model.txt> --mechanics <dir>/evidence/mechanics.md --sources <paths> --sources-manifest <file>`
 
 ## Console ground truth (final)
 

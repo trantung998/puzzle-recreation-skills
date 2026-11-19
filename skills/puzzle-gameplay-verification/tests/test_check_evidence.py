@@ -261,6 +261,24 @@ class CheckEvidenceTests(unittest.TestCase):
         self.make_mechanics(["ice"])
         self.assertFailsWith(self.run_check(*self.strict_args()), "coverage.ice.boundary")
 
+    def test_mechanic_missing_from_model_fails(self):
+        self.make_run(report=report_lines(3) + strict_lines(mechanics=("ice", "rope")))
+        self.make_model()  # contract and coverage for ice only
+        self.make_mechanics(["ice", "rope"])
+        self.assertFailsWith(self.run_check(*self.strict_args()), "coverage.rope.accept")
+
+    def test_mechanic_ids_with_dash_and_underscore(self):
+        ids = ["ice-tile", "key_lock"]
+        model = ("levels-count\tPASS\tok\nlevel-1-data\tPASS\tok\nlevel-2-data\tPASS\tok\nlevel-3-data\tPASS\tok\n"
+                 + "".join("%s.claim1.reject\tPASS\tok\n" % i + "".join(
+                     "coverage.%s.%s\tPASS\tok\n" % (i, c) for c in ("accept", "reject", "boundary")) for i in ids))
+        self.make_run(report=report_lines(3) + strict_lines(mechanics=ids))
+        self.make_model(model)
+        self.make_mechanics(ids)
+        self.assertEqual(self.run_check(*self.strict_args())["status"], "PASS")
+        self.make_run(report=report_lines(3) + strict_lines(mechanics=["ice-tile"]))
+        self.assertFailsWith(self.run_check(*self.strict_args()), "mechanic-key_lock")
+
     def test_mechanics_file_without_headings_fails(self):
         self.make_run(report=report_lines(3) + strict_lines())
         self.make_model()

@@ -215,7 +215,7 @@ def read_mechanic_ids(path):
     return ids, []
 
 
-def check_model(args):
+def check_model(args, mechanic_ids=()):
     problems = []
     path = args.model
     if not os.path.isfile(path):
@@ -245,7 +245,7 @@ def check_model(args):
             coverage_ids.add(check_id.split(".claim")[0])
     if contracts == 0:
         problems.append("model.txt has no contract line (<mechanic>.claim<k>.<case>)")
-    missing_cases = ["coverage.%s.%s" % (mechanic, case) for mechanic in sorted(coverage_ids)
+    missing_cases = ["coverage.%s.%s" % (mechanic, case) for mechanic in sorted(coverage_ids | set(mechanic_ids))
                      for case in COVERAGE_CASES if "coverage.%s.%s" % (mechanic, case) not in passed]
     if missing_cases:
         problems.append("model.txt has no PASS line for %s" % ", ".join(missing_cases))
@@ -363,6 +363,7 @@ def check(args):
         missing = [i for i in STRICT_CHECK_IDS if i not in passed_ids]
         if missing:
             problems.append("--strict: report.txt has no PASS line for %s" % ", ".join(missing))
+    mechanic_ids = []
     if args.mechanics:
         mechanic_ids, mechanic_problems = read_mechanic_ids(args.mechanics)
         problems.extend(mechanic_problems)
@@ -387,7 +388,7 @@ def check(args):
         problems.append("images not checked: the evidence directory is unavailable")
 
     if args.model:
-        problems.extend(check_model(args))
+        problems.extend(check_model(args, mechanic_ids))
         if os.path.isfile(args.model):
             artifacts.append(args.model)
 
