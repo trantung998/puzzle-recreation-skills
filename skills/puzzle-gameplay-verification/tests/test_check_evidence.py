@@ -23,7 +23,10 @@ def load_module():
     return module
 
 
-ALL_DIMENSIONS = ["since", "expect-levels", "require-checks", "require-images", "per-level-images", "sources", "sources-manifest", "model"]
+ALL_DIMENSIONS = ["since", "expect-levels", "require-checks", "require-images", "per-level-images", "sources", "sources-manifest", "model", "mechanics"]
+
+SWITCH_IDS = ["switch-next", "switch-previous", "switch-next-wrap", "switch-previous-wrap",
+              "switch-retry-resets", "switch-clears-input", "ui-blocks-gameplay", "sample-win", "console"]
 
 
 def png_1x1():
@@ -34,6 +37,11 @@ def png_1x1():
     header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
     pixel = zlib.compress(b"\x00\xff\x00\x00")
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixel) + chunk(b"IEND", b"")
+
+
+def strict_lines(omit=(), mechanics=("ice",)):
+    names = [n for n in SWITCH_IDS if n not in omit] + ["mechanic-%s" % m for m in mechanics]
+    return "".join("%s\tPASS\tok\n" % n for n in names)
 
 
 def report_lines(count, status="PASS"):
@@ -182,8 +190,14 @@ class CheckEvidenceTests(unittest.TestCase):
         self.model = os.path.join(self.root, "model.txt")
         if lines is None:
             lines = ("levels-count\tPASS\tok\nlevel-1-data\tPASS\tok\nlevel-2-data\tPASS\tok\nlevel-3-data\tPASS\tok\n"
-                     "ice.claim1.reject\tPASS\tok\ncoverage.ice.accept\tPASS\tok\n")
+                     "ice.claim1.reject\tPASS\tok\ncoverage.ice.accept\tPASS\tok\n"
+                     "coverage.ice.reject\tPASS\tok\ncoverage.ice.boundary\tPASS\tok\n")
         self.write(self.model, lines)
+
+    def make_mechanics(self, ids):
+        self.mechanics = os.path.join(self.root, "mechanics.md")
+        self.write(self.mechanics, "# Mechanics\n\n" + "".join(
+            "## Name %s (`%s`)\n\nbody\n\n" % (i, i) for i in ids))
 
     def make_sources(self):
         self.src = os.path.join(self.root, "src")
@@ -208,12 +222,50 @@ class CheckEvidenceTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)  # --model is still missing
         self.assertIn("--model", proc.stderr)
 
-    def test_strict_with_everything_passes(self):
-        self.make_run(report=report_lines(3))
+    def strict_args(self):
+        return ("--strict", "--since", "2000-01-01T00:00:00Z", "--expect-levels", "3",
+                "--require-checks", "level-*", "--model", self.model, "--mechanics", self.mechanics)
+
+    def test_strict_requires_mechanics_flag(self):
+        self.make_run(report=report_lines(3) + strict_lines())
         self.make_model()
-        result = self.run_check("--strict", "--since", "2000-01-01T00:00:00Z", "--expect-levels", "3",
-                                "--require-checks", "level-*", "--model", self.model)
+        proc = self.run_raw("--receipt", self.receipt, "--strict", "--since", "2000-01-01T00:00:00Z",
+                            "--expect-levels", "3", "--require-checks", "level-*", "--model", self.model)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--mechanics", proc.stderr)
+
+    def test_strict_with_everything_passes(self):
+        self.make_run(report=report_lines(3) + strict_lines())
+        self.make_model()
+        self.make_mechanics(["ice"])
+        result = self.run_check(*self.strict_args())
         self.assertEqual(result["status"], "PASS", result)
+
+    def test_strict_missing_one_switch_id_fails(self):
+        self.make_run(report=report_lines(3) + strict_lines(omit=("switch-previous-wrap",)))
+        self.make_model()
+        self.make_mechanics(["ice"])
+        self.assertFailsWith(self.run_check(*self.strict_args()), "switch-previous-wrap")
+
+    def test_mechanic_without_probe_line_fails(self):
+        self.make_run(report=report_lines(3) + strict_lines())
+        self.make_model()
+        self.make_mechanics(["ice", "rope"])
+        self.assertFailsWith(self.run_check(*self.strict_args()), "mechanic-rope")
+
+    def test_model_missing_coverage_case_fails(self):
+        self.make_run(report=report_lines(3) + strict_lines())
+        self.make_model("levels-count\tPASS\tok\nlevel-1-data\tPASS\tok\nlevel-2-data\tPASS\tok\n"
+                        "level-3-data\tPASS\tok\nice.claim1.reject\tPASS\tok\n"
+                        "coverage.ice.accept\tPASS\tok\ncoverage.ice.reject\tPASS\tok\n")
+        self.make_mechanics(["ice"])
+        self.assertFailsWith(self.run_check(*self.strict_args()), "coverage.ice.boundary")
+
+    def test_mechanics_file_without_headings_fails(self):
+        self.make_run(report=report_lines(3) + strict_lines())
+        self.make_model()
+        self.make_mechanics([])
+        self.assertFailsWith(self.run_check(*self.strict_args()), "short-id")
 
     def test_require_checks_missing_fails(self):
         self.make_run(report=report_lines(3))
@@ -233,10 +285,11 @@ class CheckEvidenceTests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS", result)
 
     def test_skipped_reported(self):
-        self.make_run(report=report_lines(3))
+        self.make_run(report=report_lines(3) + strict_lines())
         self.assertEqual(self.run_check()["skipped"], ALL_DIMENSIONS)
         self.make_level_images("portrait", [1, 2, 3])
         self.make_model()
+        self.make_mechanics(["ice"])
         self.make_sources()
         self.write_manifest()
         old = time.time() - 7200
@@ -245,7 +298,8 @@ class CheckEvidenceTests(unittest.TestCase):
                 os.utime(os.path.join(base, name), (old, old))
         full = self.run_check("--since", "2000-01-01T00:00:00Z", "--expect-levels", "3", "--require-checks", "level-*",
                               "--require-images", "*.png", "--per-level-images", "level-{n}-portrait-*.png",
-                              "--sources", self.src, "--sources-manifest", self.manifest, "--model", self.model)
+                              "--sources", self.src, "--sources-manifest", self.manifest, "--model", self.model,
+                              "--mechanics", self.mechanics)
         self.assertEqual(full["status"], "PASS", full)
         self.assertEqual(full["skipped"], [])
         partial = self.run_check("--expect-levels", "3")
@@ -255,11 +309,11 @@ class CheckEvidenceTests(unittest.TestCase):
     def test_documented_strict_command_passes_with_nothing_skipped(self):
         # The flags below are hard-coded copies of the judge command in SKILL.md Procedure step 5
         # (orientation "portrait"); keep both in step. The SKILL.md check guards against drift.
-        report = report_lines(3) + "".join("%s\tPASS\tok\n" % name for name in (
-            "switch-next", "switch-previous", "ui-blocks-gameplay", "mechanic-ice", "sample-win", "console"))
+        report = report_lines(3) + strict_lines()
         self.make_run(report=report, png=False)
         self.make_level_images("portrait", [1, 2, 3])
         self.make_model()
+        self.make_mechanics(["ice"])
         self.make_sources()
         self.write_manifest()
         old = time.time() - 7200
@@ -270,13 +324,13 @@ class CheckEvidenceTests(unittest.TestCase):
         documented = ["--strict", "--receipt", self.receipt, "--since", cutoff, "--expect-levels", "3",
                       "--require-checks", "level-*", "switch-*", "ui-blocks-gameplay", "mechanic-*", "sample-win",
                       "console", "--per-level-images", "level-{n}-portrait-*.png", "--model", self.model,
-                      "--sources", self.src, "--sources-manifest", self.manifest]
+                      "--mechanics", self.mechanics, "--sources", self.src, "--sources-manifest", self.manifest]
         skill = os.path.join(os.path.dirname(SCRIPT), "..", "SKILL.md")
         with open(skill, encoding="utf-8") as handle:
             text = handle.read()
         for flag in ("--strict", "--receipt", "--since", "--expect-levels", "--require-checks", '"level-*"',
                      '"switch-*"', '"ui-blocks-gameplay"', '"mechanic-*"', '"sample-win"', '"console"',
-                     '--per-level-images "level-{n}-<o>-*.png"', "--model", "--sources <paths>",
+                     '--per-level-images "level-{n}-<o>-*.png"', "--model", "--mechanics", "--sources <paths>",
                      "--sources-manifest"):
             self.assertIn(flag, text, "SKILL.md step 5 no longer documents %s" % flag)
         proc = self.run_raw(*documented)

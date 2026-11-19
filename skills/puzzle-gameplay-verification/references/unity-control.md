@@ -57,7 +57,9 @@ In the summary, `contracts` counts only claim-row contracts. Level data lines ar
 `coverage.*` lines are `coverage`, and `failed` counts failed lines of every kind, so judge by
 `failed=0` and by `contracts` being at least the number of claim rows you wrote (zero contracts
 is itself a FAIL line). `check_evidence.py --model` checks the same file for FAIL lines, a contract line
-and a PASS `level-<n>-data` line for every level 1..N (with `--expect-levels`).
+a PASS `level-<n>-data` line for every level 1..N (with `--expect-levels`), and PASS
+`coverage.<id>.{accept,reject,boundary}` for every mechanic id that has a contract line. `--mechanics <mechanics.md>`
+also needs a PASS `mechanic-<short-id>` report line per heading.
 
 Example shape, with a fresh directory (create the parent first and confirm the receipt does
 not exist):

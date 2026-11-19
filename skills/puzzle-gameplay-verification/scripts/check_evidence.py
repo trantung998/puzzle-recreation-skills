@@ -12,6 +12,7 @@ report.txt with one line per check: "<id><TAB><PASS|FAIL><TAB><detail>".
 Run start:  --write-sources-manifest <file> --sources <path>...   (writes "<sha256><TAB><relpath>" lines)
 Judging:    --receipt <path> [--strict] [--since T] [--expect-levels N] [--require-checks ID...]
             [--require-images GLOB...] [--per-level-images PATTERN_WITH_{n}]... [--model model.txt]
+            [--mechanics mechanics.md]
             [--sources PATH... [--sources-manifest FILE]]
 """
 import argparse
@@ -29,10 +30,14 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 LEVEL_ID = re.compile(r"^level-(\d+)$")
 LEVEL_DATA_ID = re.compile(r"^level-(\d+)-data$")
 CONTRACT_ID = re.compile(r"^(?!coverage\.).+\.claim[^.]*\.[^.]+$")  # <mechanic>.claim<k>.<case>
+MECHANIC_HEADING = re.compile(r"^##\s+.*\(`([A-Za-z0-9_.-]+)`\)\s*$")  # "## Name (`short-id`)", mechanic-entry.md
+COVERAGE_CASES = ("accept", "reject", "boundary")  # ModelContractRunner writes coverage.<id>.<case>
+STRICT_CHECK_IDS = ["switch-next", "switch-previous", "switch-next-wrap", "switch-previous-wrap",
+                    "switch-retry-resets", "switch-clears-input", "ui-blocks-gameplay", "sample-win", "console"]
 DIMENSIONS = ["since", "expect-levels", "require-checks", "require-images",
-              "per-level-images", "sources", "sources-manifest", "model"]
+              "per-level-images", "sources", "sources-manifest", "model", "mechanics"]
 STRICT_REQUIRED = [("since", "--since"), ("expect-levels", "--expect-levels"),
-                   ("require-checks", "--require-checks"), ("model", "--model")]
+                   ("require-checks", "--require-checks"), ("model", "--model"), ("mechanics", "--mechanics")]
 
 
 class Usage(Exception):
@@ -192,6 +197,24 @@ def check_sources_mtime(args, receipt):
     return problems
 
 
+def read_mechanic_ids(path):
+    """Returns (ids, problems) from the "## Name (`short-id`)" headings of mechanics.md."""
+    if not os.path.isfile(path):
+        return [], ["mechanics file missing: %s" % path]
+    try:
+        text = read_text(path)
+    except OSError as exc:
+        return [], ["mechanics file cannot be read: %s" % exc]
+    ids = []
+    for line in text.splitlines():
+        match = MECHANIC_HEADING.match(line.rstrip())
+        if match and match.group(1) not in ids:
+            ids.append(match.group(1))
+    if not ids:
+        return [], ["mechanics file has no '## <name> (`<short-id>`)' heading, so no short-id could be read: %s" % path]
+    return ids, []
+
+
 def check_model(args):
     problems = []
     path = args.model
@@ -201,7 +224,7 @@ def check_model(args):
         text = read_text(path)
     except OSError as exc:
         return ["model file cannot be read: %s" % exc]
-    contracts, level_ids = 0, set()
+    contracts, level_ids, coverage_ids, passed = 0, set(), set(), set()
     for number, raw in enumerate(text.splitlines(), 1):
         if not raw.strip():
             continue
@@ -214,12 +237,18 @@ def check_model(args):
         if result == "FAIL":
             problems.append("model check %s reported FAIL: %s" % (check_id, parts[2].strip() if len(parts) > 2 else ""))
             continue
+        passed.add(check_id)
         if LEVEL_DATA_ID.match(check_id):
             level_ids.add(check_id)
         elif CONTRACT_ID.match(check_id):
             contracts += 1
+            coverage_ids.add(check_id.split(".claim")[0])
     if contracts == 0:
         problems.append("model.txt has no contract line (<mechanic>.claim<k>.<case>)")
+    missing_cases = ["coverage.%s.%s" % (mechanic, case) for mechanic in sorted(coverage_ids)
+                     for case in COVERAGE_CASES if "coverage.%s.%s" % (mechanic, case) not in passed]
+    if missing_cases:
+        problems.append("model.txt has no PASS line for %s" % ", ".join(missing_cases))
     if args.expect_levels is not None:
         missing = ["level-%d-data" % n for n in range(1, args.expect_levels + 1)
                    if "level-%d-data" % n not in level_ids]
@@ -330,6 +359,17 @@ def check(args):
             if not any(fnmatch.fnmatchcase(check_id, pattern) for check_id in passed_ids):
                 problems.append("no PASS line matches required check %r in report.txt" % pattern)
 
+    if args.strict:
+        missing = [i for i in STRICT_CHECK_IDS if i not in passed_ids]
+        if missing:
+            problems.append("--strict: report.txt has no PASS line for %s" % ", ".join(missing))
+    if args.mechanics:
+        mechanic_ids, mechanic_problems = read_mechanic_ids(args.mechanics)
+        problems.extend(mechanic_problems)
+        missing = ["mechanic-%s" % i for i in mechanic_ids if "mechanic-%s" % i not in passed_ids]
+        if missing:
+            problems.append("report.txt has no PASS line for %s" % ", ".join(missing))
+
     if args.evidence:
         for pattern in args.require_images or []:
             before = len(problems)
@@ -397,7 +437,8 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--receipt", help="receipt file written by PointerSmoke.Start")
     parser.add_argument("--strict", action="store_true",
-                        help="require --since, --expect-levels, --require-checks and --model")
+                        help="require --since, --expect-levels, --require-checks, --model and --mechanics, "
+                             "and every switch-*, ui-blocks-gameplay, sample-win and console check")
     parser.add_argument("--require-images", nargs="+", metavar="GLOB",
                         help="PNG globs, relative to the evidence directory, that must match valid files")
     parser.add_argument("--per-level-images", action="append", metavar="PATTERN",
@@ -408,6 +449,8 @@ def build_parser():
     parser.add_argument("--require-checks", nargs="+", metavar="ID_OR_GLOB",
                         help="fnmatch patterns; each must match at least one PASS line of report.txt")
     parser.add_argument("--model", metavar="FILE", help="model.txt from ModelContractRunner")
+    parser.add_argument("--mechanics", metavar="FILE",
+                        help="mechanics.md; report.txt needs a PASS mechanic-<short-id> for every heading")
     parser.add_argument("--sources", nargs="+", metavar="PATH",
                         help="code and asset paths; none may be newer than the receipt")
     parser.add_argument("--sources-manifest", metavar="FILE",
