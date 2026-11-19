@@ -29,7 +29,7 @@ recreate-puzzle-gameplay/scripts/ensure_tools.py` and returns 1. On success it
 exports `UNITY_DECOMPILE_TOOLS` plus `SK`, `PATH`, `JAVA_HOME`, `GHIDRA_INSTALL_DIR`,
 `ANALYZE_HEADLESS`, `GHIDRA_HEADLESS_MAXMEM`, `IL2CPPINSPECTOR_DIR`, `ASSETRIPPER`
 and `DOTNET_ROLL_FORWARD`. The `bin/` wrappers require `UNITY_DECOMPILE_TOOLS`,
-so source `tools-env.sh` first. System PATH is never changed.
+so run them through `bash "<skill>/scripts/in_env.sh" "<workdir>" '<command>'` (it sources `tools-env.sh`). System PATH is never changed.
 
 Expected subfolders: `decompile-python`, `jdk-25`, `ghidra-12.2`,
 `Il2CppInspectorRedux-2026.2`, `AssetRipper_2.0.0`, `ilspycmd-9.1.0`, plus a .NET 10 runtime

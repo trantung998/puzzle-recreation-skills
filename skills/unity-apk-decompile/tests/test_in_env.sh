@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WRAP="$HERE/../scripts/in_env.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-pass=0; fails=""; total=6
+pass=0; fails=""; total=8
 ok() { pass=$((pass+1)); }
 bad() { fails="$fails $1"; }
 
@@ -38,6 +38,19 @@ case "$out" in "$TMP/Fresh||"*) [ "$(cd "${out#"$TMP/Fresh||"}" 2>/dev/null && p
 
 bash "$WRAP" "$TMP/My Work" >/dev/null 2>&1; rc=$?
 [ $rc -eq 2 ] && ok || bad case6
+
+# case7: a value with an embedded single quote (written as '\'' by unity_triage) round-trips
+q="$TMP/it's work"; mkdir -p "$q"
+esc=$(printf '%s' "$q" | sed "s/'/'\\\\''/g")
+{ printf "W='%s'\n" "$esc"; printf "SO='/x/it'\\\\''s lib.so'\n"; } > "$q/paths.env"
+out=$(bash "$WRAP" "$q" 'printf "%s|%s" "$W" "$SO"' 2>/dev/null)
+[ "$out" = "$q|/x/it's lib.so" ] && ok || bad case7
+
+# case8: a forward-slash Windows-form value round-trips unchanged
+mkdir -p "$TMP/Win"
+printf "W='H:/UGame/work'\nSO='H:/UGame/work/unpacked/lib/libil2cpp.so'\n" > "$TMP/Win/paths.env"
+out=$(bash "$WRAP" "$TMP/Win" 'printf "%s|%s" "$W" "$SO"' 2>/dev/null)
+[ "$out" = "H:/UGame/work|H:/UGame/work/unpacked/lib/libil2cpp.so" ] && ok || bad case8
 
 if [ $pass -eq $total ]; then echo "PASS $total/$total"; exit 0; fi
 echo "FAIL$fails"; exit 1

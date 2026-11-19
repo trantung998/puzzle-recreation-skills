@@ -106,12 +106,13 @@ Tools, before every phase that uses decompile tools (`decompile`, `level-catalog
   installed, from the pinned URL or `==` pins in `scripts/tools-manifest.json`, and an
   archive is kept only if its SHA-256 matches. Do not pick versions, URLs or folders
   yourself, and never use "latest". `--check` detects without installing (for planning).
-- Then, in the shell that runs the decompile scripts, set `UNITY_DECOMPILE_TOOLS` to the
-  `root` it printed. On Windows, the Bash scripts run in the Git Bash whose path `git-bash`
-  printed; on macOS and Linux they run in `bash` (through `in_env.sh`; never `source tools-env.sh` by hand).
+- Then pass `UNITY_DECOMPILE_TOOLS=<root>` (the `root` it printed) as a per-call prefix to each
+  `bash ".../in_env.sh"` command; each agent tool call is a fresh shell, so nothing persists.
+  On Windows, the Bash scripts run in the Git Bash whose path `git-bash` printed; on macOS and
+  Linux they run in `bash` (through `in_env.sh`; never `source tools-env.sh` by hand).
   `tools-env.sh` puts `<root>/dotnet` first on PATH when it exists. If the `dotnet` path
-  `ensure_tools.py` printed is elsewhere and not on that shell's PATH, prepend its directory
-  in that shell only.
+  `ensure_tools.py` printed is elsewhere and not on that PATH, prepend its directory as a
+  per-call prefix too (`PATH="<dotnet dir>:$PATH" bash ".../in_env.sh" ...`).
 - Exit 3 means a required tool is `failed` or `manual`. That is a stop (section 6): the
   `detail` is the exact unblock step, handed to the user. A `manual` detail starts with
   `stop: hand to the user —` and names a pinned, user-scope, no-admin install (.NET 10.0.15

@@ -37,28 +37,27 @@ Mỗi tool call của agent là một shell mới (trên macOS thường là zsh
 wrapper** `bash "<this skill directory>/scripts/in_env.sh" "<workdir>" '<command>'` (`<this skill directory>` là
 đường dẫn tuyệt đối của thư mục chứa SKILL.md): wrapper nạp `tools-env.sh` và `<workdir>/paths.env`, đặt
 `W` (= workdir), `SO`, `META`, `SK`, rồi chạy `<command>`. Lệnh nằm trong nháy đơn để biến được mở ra bên trong
-wrapper, và luôn quote `"$W"`, `"$SO"`, `"$META"`, `"$SK"`. `UNITY_DECOMPILE_TOOLS` (nếu cần) đặt trước `bash`.
+wrapper, và luôn quote `"$W"`, `"$SO"`, `"$META"`, `"$SK"`. Mỗi lệnh dưới đây tự đủ, không phụ thuộc biến của tool call trước: thay `<workdir>` bằng đường dẫn thật. `UNITY_DECOMPILE_TOOLS` (nếu cần) và PATH của `dotnet` cũng chỉ là tiền tố của từng lệnh `bash` (ví dụ `UNITY_DECOMPILE_TOOLS="<root>" bash "<this skill directory>/scripts/in_env.sh" ...`).
 
 ```bash
-IN="<this skill directory>/scripts/in_env.sh"; WD=/path/to/new-workdir   # lặp lại hai biến này ở mỗi tool call
 # 1. Triage: unpack mọi APK (base + split) vào "$W/unpacked/", in ROUTE, ghi "$W/paths.env" (W, SO đã chọn ABI, META)
-bash "$IN" "$WD" 'python3 -I "$SK/unity_triage.py" game.xapk "$W"'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/unity_triage.py" game.xapk "$W"'
 
 # 2. Dump metadata (~30-70 s). Kết thúc phải có "OK: N methods"
-bash "$IN" "$WD" 'bash "$SK/run_il2cppinspector.sh" "$SO" "$META" "$W/il2cpp-out"'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'bash "$SK/run_il2cppinspector.sh" "$SO" "$META" "$W/il2cpp-out"'
 
 # 3. Tìm mục tiêu: theo tên class rồi theo tên method (class trong namespace bị thụt lề)
-bash "$IN" "$WD" 'grep -nE "^\s*(public|internal).*class .*(Passenger|Bus|Level|Board)" "$W/il2cpp-out/dump.cs" | head -40'
-bash "$IN" "$WD" 'python3 -I "$SK/dump_class.py" "$W/il2cpp-out/dump.cs" BusStopSlot'   # field+offset, method+RVA
-bash "$IN" "$WD" 'python3 -I "$SK/select_targets.py" "$W/il2cpp-out" "$W/work" "Board|Match|Can[A-Z]|Try[A-Z]" --list | grep -v "^0x.* System\." | head -60'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'grep -nE "^\s*(public|internal).*class .*(Passenger|Bus|Level|Board)" "$W/il2cpp-out/dump.cs" | head -40'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/dump_class.py" "$W/il2cpp-out/dump.cs" BusStopSlot'   # field+offset, method+RVA
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/select_targets.py" "$W/il2cpp-out" "$W/work" "Board|Match|Can[A-Z]|Try[A-Z]" --list | grep -v "^0x.* System\." | head -60'
 
 # 4. Ghi targets.tsv (regex nhiều mục tiêu; $$ phải nằm trong nháy đơn của wrapper) rồi decompile
-bash "$IN" "$WD" 'python3 -I "$SK/select_targets.py" "$W/il2cpp-out" "$W/work" '\''TapBoardingService\$\$TryBoard$|BusStopSlot\$\$BoardingSeatsFor$|BusStopSlot\$\$MatchWithPassenger$'\'''
-bash "$IN" "$WD" 'bash "$SK/ghidra_decompile.sh" "$SO" "$W/work"'      # -> "$W/work/native-code/*.c", _index.tsv
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/select_targets.py" "$W/il2cpp-out" "$W/work" '\''TapBoardingService\$\$TryBoard$|BusStopSlot\$\$BoardingSeatsFor$|BusStopSlot\$\$MatchWithPassenger$'\'''
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'bash "$SK/ghidra_decompile.sh" "$SO" "$W/work"'      # -> "$W/work/native-code/*.c", _index.tsv
 
 # 5-6. Asset/level (vài chục giây – vài phút) rồi đọc ScriptableObject
-bash "$IN" "$WD" 'python3 -I "$SK/assetripper_export.py" game.xapk "$W/export"'
-bash "$IN" "$WD" 'python3 -I "$SK/unity_yaml.py" "$W/export/ExportedProject/Assets" script LevelCollection'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/assetripper_export.py" game.xapk "$W/export"'
+bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/unity_yaml.py" "$W/export/ExportedProject/Assets" script LevelCollection'
 ```
 
 | Bước | Kiểm chứng |
@@ -75,7 +74,7 @@ chạy lại. Project Ghidra ở `"$W/work/ghidra-project/il2cpp-<sha12>"` (kho�
 giây (`-readOnly`; `SAVE=1` để lưu tên vào project).
 
 **Đổi offset thành tên field:** `param_1` là `this` của class chứa method.
-`bash "$IN" "$WD" 'python3 -I "$SK/dump_class.py" "$W/il2cpp-out/dump.cs" --offset PassengerModel 0x18'` tự tìm qua cả
+`bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/dump_class.py" "$W/il2cpp-out/dump.cs" --offset PassengerModel 0x18'` tự tìm qua cả
 chuỗi class cha. Với `*(*(this+0x10)+0x18)`: tra field `+0x10` trước để biết kiểu của nó, rồi
 tra `+0x18` trên kiểu đó. Nếu class cha là generic (`Entity<TModel,...>`), field của nó nằm trong
 class generic đó (`dump_class.py ... --bases`).
