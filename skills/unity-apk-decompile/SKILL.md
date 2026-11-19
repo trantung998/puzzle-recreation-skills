@@ -66,7 +66,7 @@ python3 -I $SK/unity_yaml.py $W/export/ExportedProject/Assets script LevelCollec
 
 **Mở rộng mục tiêu:** logic thường trải qua nhiều class (service → slot → model). Sau lần
 decompile đầu, đọc tên callee C# trong `.c`, thêm các callee quan trọng vào regex bước 4 và
-chạy lại. Project Ghidra ở `$W/work/ghidra-project` được tái dùng nên mỗi lần chạy chỉ mất vài
+chạy lại. Project Ghidra ở `$W/work/ghidra-project/il2cpp-<sha12>` (khoá theo hash của `.so`, đổi `.so` thì import lại) được tái dùng nên mỗi lần chạy chỉ mất vài
 giây (`-readOnly`; `SAVE=1` để lưu tên vào project).
 
 **Đổi offset thành tên field:** `param_1` là `this` của class chứa method.

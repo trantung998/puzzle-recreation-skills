@@ -98,5 +98,6 @@ python3 -m unittest discover -s ~/.agents/skills/recreate-puzzle-gameplay/tests
 python3 -m unittest discover -s ~/.agents/skills/puzzle-evidence-extraction/tests
 python3 -m unittest discover -s ~/.agents/skills/puzzle-gameplay-verification/tests
 bash ~/.agents/skills/unity-apk-decompile/tests/test_tools_env.sh   # Git Bash on Windows
+bash ~/.agents/skills/unity-apk-decompile/tests/test_ghidra_decompile.sh
 python3 tools/validate_skills.py ~/.agents/skills/recreate-puzzle-gameplay ~/.agents/skills/puzzle-evidence-extraction ~/.agents/skills/puzzle-gameplay-build ~/.agents/skills/puzzle-gameplay-verification
 ```

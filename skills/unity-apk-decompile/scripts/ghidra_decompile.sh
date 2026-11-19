@@ -41,11 +41,19 @@ case "$CLS/$MACH" in
   2/62)  PROC=x86:LE:64:default ;;
   *) echo "unsupported ELF class/machine $CLS/$MACH" >&2; exit 2 ;;
 esac
-PROJ="$WORK/ghidra-project"; NAME=il2cpp; PROG=$(basename "$SO")
+# Key the project by the .so content: a different build (armv7 vs arm64) must never reuse another's project.
+SHA=$(python3 -I -c 'import sys,hashlib
+h=hashlib.sha256()
+f=open(sys.argv[1],"rb")
+for b in iter(lambda:f.read(1<<20),b""): h.update(b)
+print(h.hexdigest())' "$SO")
+SHA=${SHA%$'\r'}
+PROJ="$WORK/ghidra-project"; NAME="il2cpp-${SHA:0:12}"; PROG=$(basename "$SO")
 mkdir -p "$PROJ"
 COMMON=(-noanalysis -scriptPath "$HERE/ghidra" -postScript DecompileIl2cppTargets.java
         "$OUT" "$WORK/targets.tsv" "$WORK/names.tsv" "$WORK/labels.tsv")
 LOG="$WORK/ghidra-decompile.log"
+rm -f "$OUT/_index.tsv"   # a stale index from an earlier run must not count as this run's result
 if [[ -d "$PROJ/$NAME.rep" ]]; then
   RO=(-readOnly); [[ "${SAVE:-0}" == 1 ]] && RO=()
   "$AH" "$PROJ" "$NAME" -process "$PROG" ${RO[@]+"${RO[@]}"} "${COMMON[@]}" >"$LOG" 2>&1 || true
@@ -53,6 +61,16 @@ else
   echo "first import of $PROG ($PROC) - ~10-60 s with -noanalysis, reused afterwards" >&2
   "$AH" "$PROJ" "$NAME" -import "$SO" -processor "$PROC" -loader ElfLoader -max-cpu 8 "${COMMON[@]}" >"$LOG" 2>&1 || true
 fi
-grep -E "IMAGE_BASE|^INFO .*DONE |NO_FUNCTION|SCRIPT ERROR|Exception|REPORT: (Import|Save)" "$LOG" | sed 's/^INFO  //' | head -80
+grep -E "IMAGE_BASE|^INFO .*DONE |NO_FUNCTION|SCRIPT ERROR|Exception|REPORT: (Import|Save)" "$LOG" | sed 's/^INFO  //' | head -80 || true
 echo "log: $LOG  output: $OUT  (_index.tsv column 2 = Ghidra address = image base + RVA)" >&2
-grep -q "OK" "$OUT/_index.tsv" 2>/dev/null
+# Exit status comes from the index: non-empty and every target OK.
+if [[ ! -s "$OUT/_index.tsv" ]]; then
+  echo "no _index.tsv produced: Ghidra did not run the script, see $LOG" >&2
+  exit 1
+fi
+TOTAL=$(awk 'END{print NR}' "$OUT/_index.tsv")
+BAD=$(awk -F'\t' '$3 != "OK"{n++} END{print n+0}' "$OUT/_index.tsv")
+if [[ "$BAD" -ne 0 ]]; then
+  echo "$BAD/$TOTAL targets not OK (FAIL/NO_FUNCTION): see $OUT/_index.tsv and $LOG" >&2
+  exit 1
+fi
