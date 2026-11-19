@@ -261,11 +261,14 @@ def folder_is_complete(base, tool, platform):
     return bool(paths) and all(detect_exists(base, p) for p in paths)
 
 
-def pick_source(tool, platform):
+def detect_arch():
+    return "arm64" if _platform.machine().lower() in ("arm64", "aarch64") else "x64"
+
+
+def pick_source(tool, platform, arch):
     key = platform
-    if platform in ("linux", "macos") and not tool.get("neutral"):
-        if _platform.machine().lower() in ("arm64", "aarch64"):
-            key = platform + "-arm64"
+    if platform in ("linux", "macos") and not tool.get("neutral") and arch == "arm64":
+        key = platform + "-arm64"
     return tool.get(key), key
 
 
@@ -444,7 +447,7 @@ def install_archive(tool, root, platform, fetch, src):
     return result("installed", tool, final, "from %s; sha256=%s (%s)" % (url, digest, how))
 
 
-def process_tool(tool, root, platform, check, fetch, runner):
+def process_tool(tool, root, platform, check, fetch, runner, arch):
     if not tool.get("folder"):
         return detect_command_tool(tool, platform, root, runner)
     folder = tool["folder"]
@@ -461,14 +464,15 @@ def process_tool(tool, root, platform, check, fetch, runner):
     os.makedirs(root, exist_ok=True)
     if tool.get("post") in VENV_POSTS:
         return install_venv(tool, final, platform, runner)
-    src, key = pick_source(tool, platform)
+    src, key = pick_source(tool, platform, arch)
     if not src:
         return result("failed", tool, final, "no pinned download for platform " + key)
     return install_archive(tool, root, platform, fetch, src)
 
 
-def ensure(root, manifest, check=False, fetch=None, platform=None, runner=None):
+def ensure(root, manifest, check=False, fetch=None, platform=None, runner=None, arch=None):
     platform = platform or detect_platform()
+    arch = arch or detect_arch()
     fetch = fetch or default_fetch
     runner = runner or default_runner
     tools = {}
@@ -476,7 +480,7 @@ def ensure(root, manifest, check=False, fetch=None, platform=None, runner=None):
         if tool.get("only") and platform not in tool["only"]:
             continue
         try:
-            tools[tool["id"]] = process_tool(tool, root, platform, check, fetch, runner)
+            tools[tool["id"]] = process_tool(tool, root, platform, check, fetch, runner, arch)
         except Exception as e:
             tools[tool["id"]] = result("failed", tool, "", "%s: %s" % (type(e).__name__, e))
     return {"root": root, "tools": tools}

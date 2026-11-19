@@ -254,6 +254,14 @@ class EnsureToolsTests(unittest.TestCase):
         dl = os.path.join(self.root, "downloads")
         self.assertEqual(os.listdir(dl) if os.path.isdir(dl) else [], [])
 
+    def test_pick_source_uses_given_arch(self):
+        tool = {"linux": {"url": "x"}, "linux-arm64": {"url": "a"}, "macos": {"url": "m"}}
+        self.assertEqual(ensure_tools.pick_source(tool, "linux", "x64")[1], "linux")
+        self.assertEqual(ensure_tools.pick_source(tool, "linux", "arm64")[1], "linux-arm64")
+        self.assertEqual(ensure_tools.pick_source(tool, "macos", "arm64")[1], "macos-arm64")
+        self.assertEqual(ensure_tools.pick_source(dict(tool, neutral=True), "linux", "arm64")[1], "linux")
+        self.assertEqual(ensure_tools.pick_source(tool, "windows", "arm64")[1], "windows")
+
     def test_exec_bits_post_marks_apphost_executable(self):
         # Il2CppInspectorRedux release zips store the Linux/macOS apphost as 0644
         url = "https://x.invalid/i.zip"
@@ -261,7 +269,7 @@ class EnsureToolsTests(unittest.TestCase):
                                            "Il2CppInspectorRedux.Legacy.CLI-linux-x64/Il2CppInspector.pdb": b"p"})})
         e = entry("il2cppinspector", "i-1", url, detect={"linux": ["Il2CppInspector"]}, post="exec-bits",
                   exec=["Il2CppInspector"])
-        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux")
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux", arch="x64")
         self.assertEqual(res["tools"]["il2cppinspector"]["status"], "installed", res)
         exe = os.path.join(self.root, "i-1", "Il2CppInspector")
         self.assertTrue(os.path.isfile(exe))
@@ -273,7 +281,7 @@ class EnsureToolsTests(unittest.TestCase):
         fetch = FakeFetch({url: zip_bytes({"other": b"x"})})
         e = entry("il2cppinspector", "i-1", url, detect={"linux": ["other"]}, post="exec-bits",
                   exec=["Il2CppInspector"])
-        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux")
+        res = ensure_tools.ensure(self.root, {"schema": 1, "tools": [e]}, fetch=fetch, platform="linux", arch="x64")
         self.assertEqual(res["tools"]["il2cppinspector"]["status"], "failed")
         self.assertIn("Il2CppInspector", res["tools"]["il2cppinspector"]["detail"])
         self.assertFalse(os.path.exists(os.path.join(self.root, "i-1")))
