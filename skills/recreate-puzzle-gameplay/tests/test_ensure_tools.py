@@ -34,7 +34,7 @@ def tar_bytes(members):
 
 
 def tar_entries(entries):
-    """Tar.gz from (name, kind, payload): kind file (payload bytes), sym (payload linkname) or dir."""
+    """Tar.gz from (name, kind, payload): kind file (payload bytes), sym / hard (payload linkname) or dir."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as t:
         for name, kind, payload in entries:
@@ -47,6 +47,9 @@ def tar_entries(entries):
                 info.type = tarfile.SYMTYPE
                 info.linkname = payload
                 info.mode = 0o777
+            elif kind == "hard":
+                info.type = tarfile.LNKTYPE
+                info.linkname = payload
             elif kind == "dir":
                 info.type = tarfile.DIRTYPE
                 info.mode = 0o755
@@ -275,6 +278,43 @@ class EnsureToolsTests(unittest.TestCase):
         self.assertEqual(found, [])
         self.assert_no_partials()
 
+    def assert_tar_escape_blocked(self, entries):
+        # dest sits three levels below self.tmp so an escape of up to three levels stays observable
+        root = os.path.join(self.tmp, "l1", "l2", "tools")
+        url = "https://x.invalid/evil.tar.gz"
+        fetch = FakeFetch({url: tar_entries(entries)})
+        res = ensure_tools.ensure(root, {"schema": 1, "tools": pin([entry("evil", "evil-1", url, archive="tar.gz")],
+                                                                   fetch)},
+                                  fetch=fetch, platform="windows", arch="x64")
+        self.assertEqual(res["tools"]["evil"]["status"], "failed", entries)
+        found = [os.path.join(d, n) for d, _, names in os.walk(self.tmp) for n in names if n == "pwned.txt"]
+        self.assertEqual(found, [], entries)
+        self.assertEqual([n for n in os.listdir(root) if n.endswith(".partial")], [], entries)
+
+    def test_tar_symlink_chain_with_dot_slash_name_rejected(self):
+        self.assert_tar_escape_blocked([("./x", "sym", "."), ("x/y", "sym", ".."), ("y/pwned.txt", "file", b"p")])
+
+    def test_tar_symlink_chain_with_double_slash_or_inner_dot_name_rejected(self):
+        for name in ("a//x", "a/./x"):
+            self.assert_tar_escape_blocked([(name, "sym", "."), ("a/x/y", "sym", "../.."),
+                                            ("a/y/pwned.txt", "file", b"p")])
+
+    def test_tar_symlink_chain_with_trailing_slash_name_rejected(self):
+        self.assert_tar_escape_blocked([("x/", "sym", "."), ("x/y", "sym", ".."), ("y/pwned.txt", "file", b"p")])
+
+    def test_tar_deep_symlink_chain_with_unnormalized_names_rejected(self):
+        self.assert_tar_escape_blocked([("./a", "sym", "."), ("a/b", "sym", ".."), ("b/./c", "sym", ".."),
+                                        ("b/c/pwned.txt", "file", b"p")])
+
+    def test_tar_hardlink_through_unnormalized_symlink_rejected(self):
+        url = "https://x.invalid/evil.tar.gz"
+        fetch = FakeFetch({url: tar_entries([("t-1/bin/tool.txt", "file", b"1"), ("t-1/./s", "sym", "."),
+                                             ("t-1/h", "hard", "t-1/s/bin/tool.txt")])})
+        res = self.ensure([entry("t", "t-1", url, archive="tar.gz")], fetch)
+        self.assertEqual(res["tools"]["t"]["status"], "failed")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "t-1")))
+        self.assert_no_partials()
+
     def test_tar_link_target_through_symlink_rejected(self):
         url = "https://x.invalid/evil.tar.gz"
         fetch = FakeFetch({url: tar_entries([("t-1/x", "sym", "."), ("t-1/z", "sym", "x/../../evil"),
@@ -311,6 +351,14 @@ class EnsureToolsTests(unittest.TestCase):
         self.assertTrue(cs("a/../../x", links))
         self.assertFalse(cs("Contents/MacOS/../Home/lib/x", links))
         self.assertTrue(cs("A/S/f", links))           # case-insensitive filesystems
+        self.assertTrue(cs("./a/s/f", links))
+        self.assertTrue(cs("a//s/f", links))
+        self.assertTrue(cs("a/./s/f", links))
+        self.assertTrue(cs("a/s/", links))            # trailing slash resolves through the link
+        self.assertFalse(cs("a/s", {"a/s/"}))
+        for raw in ("./x", "a//x", "a/./x", "x/", "./a/./x//"):
+            norm = raw.replace("//", "/").replace("./", "").rstrip("/")
+            self.assertTrue(cs(norm + "/f", {raw}), raw)   # set entries are normalized the same way
 
     def test_non_https_url_rejected_without_fetch(self):
         fetch = FakeFetch({})

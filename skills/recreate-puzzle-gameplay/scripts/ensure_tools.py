@@ -164,9 +164,16 @@ def contained(dest_real, rel):
     return target
 
 
+def _norm_name(path):
+    """The one component walk shared by every check: unify separators, drop "" and "." (keep "..").
+    tarfile extracts "./x", "a//x" and "a/./x" at "x" / "a/x", so they must compare equal."""
+    return "/".join(p for p in path.replace("\\", "/").split("/") if p not in ("", "."))
+
+
 def _fs_key(path):
-    """Compare names the way case- and normalization-insensitive filesystems (macOS, Windows) do."""
-    return unicodedata.normalize("NFC", path).casefold()
+    """Compare names the way extraction and case- and normalization-insensitive filesystems (macOS,
+    Windows) do."""
+    return unicodedata.normalize("NFC", _norm_name(path)).casefold()
 
 
 def _crosses(path, keys):
@@ -230,10 +237,16 @@ def extract_tar(archive, dest):
     dest_real = os.path.realpath(dest)
     with tarfile.open(archive, "r:*") as tf:
         members = tf.getmembers()
-        symlinks = {_fs_key(safe_relpath(m.name)) for m in members if m.issym()}
+        symlinks = set()
+        for m in members:
+            if m.issym():
+                name = _norm_name(safe_relpath(m.name))
+                if not name:
+                    raise UnsafeArchive("symlink at the archive root: %r" % m.name)
+                symlinks.add(_fs_key(name))
         total = 0
         for m in members:
-            rel = safe_relpath(m.name)
+            rel = _norm_name(safe_relpath(m.name))
             contained(dest_real, rel)
             if _crosses(rel, symlinks):
                 raise UnsafeArchive("archive member passes through a symlink: %r" % m.name)
@@ -247,7 +260,7 @@ def extract_tar(archive, dest):
                 if _crosses(posixpath.join(posixpath.dirname(rel), link), symlinks):
                     raise UnsafeArchive("symlink target passes through a symlink: %r" % m.name)
             elif m.islnk():
-                target = safe_relpath(m.linkname)
+                target = _norm_name(safe_relpath(m.linkname))
                 contained(dest_real, target)
                 if _crosses(target, symlinks):
                     raise UnsafeArchive("hardlink target passes through a symlink: %r" % m.name)
