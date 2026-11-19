@@ -13,6 +13,7 @@ import struct
 import sys
 import zipfile
 from pathlib import Path
+from typing import Optional
 
 VER_FILES = ("globalgamemanagers", "data.unity3d", "mainData", "level0", "unity default resources")
 PROTECTION_LIBS = {
@@ -33,6 +34,18 @@ def elf_info(data: bytes):
     cls = {1: 32, 2: 64}.get(data[4])
     mach = struct.unpack_from("<H", data, 18)[0]
     return {"bits": cls, "machine": {40: "arm", 183: "aarch64", 3: "x86", 62: "x86_64"}.get(mach, mach)}
+
+
+def sh_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def paths_env_text(out: str, lib: Optional[str], meta: Optional[str]) -> str:
+    lines = []
+    for name, val in (("W", out), ("SO", lib), ("META", meta)):
+        if val is not None:
+            lines.append("%s=%s" % (name, sh_quote(val.replace("\\", "/"))))
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
@@ -152,12 +165,10 @@ def main() -> int:
         r["notes"].append("PairIP present: static analysis is fine; repacked/resigned APK is expected to fail at launch")
 
     (out / "triage.json").write_text(json.dumps(r, indent=2))
-    env = [f"W={out}"]
-    if r.get("chosen_lib"):
-        env.append(f"SO='{r['chosen_lib']['path']}'")
-    if r["metadata"]:
-        env.append(f"META='{r['metadata']['path']}'")
-    (out / "paths.env").write_text("\n".join(env) + "\n")
+    (out / "paths.env").write_text(paths_env_text(
+        str(out),
+        r["chosen_lib"]["path"] if r.get("chosen_lib") else None,
+        r["metadata"]["path"] if r["metadata"] else None))
     print(f"backend      : {r['backend']}")
     print(f"unity        : {r['unity_version']}")
     print(f"abis         : {', '.join(f'{a}({len(l)})' for a, l in r['abis'].items())}")
