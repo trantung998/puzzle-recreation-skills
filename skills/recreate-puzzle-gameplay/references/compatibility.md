@@ -108,11 +108,11 @@ each skill states its fallback.
   Quote paths that contain spaces or `+` (`"D:/games/Tile+Twister_312_APKPure.xapk"`).
 - On macOS, `python3` may be the Xcode Command Line Tools interpreter (3.9) or Homebrew's;
   both work. Every script supports Python 3.9+.
-- Bash scripts (`unity-apk-decompile`) run under Git Bash on Windows, for example
-  `"C:/Program Files/Git/bin/bash.exe" -c 'source "<skill dir>/scripts/tools-env.sh" && ...'`,
-  and under the stock `bash` on macOS (3.2 is enough) and Linux:
-  `bash -c 'source "<skill dir>/scripts/tools-env.sh" && ...'`. Do not `source` it from zsh
-  (the macOS default shell): it relies on `BASH_SOURCE`.
+- Bash scripts (`unity-apk-decompile`) run under Git Bash on Windows and the stock `bash` on
+  macOS (3.2 is enough) and Linux, always through the wrapper, never `source`d by hand:
+  `bash "<skill dir>/scripts/in_env.sh" "<workdir>" '<command>'` (on Windows invoke it with
+  `"C:/Program Files/Git/bin/bash.exe"`). The wrapper loads `tools-env.sh` and
+  `<workdir>/paths.env`, so it works from any agent shell (zsh included).
 - Decompile phase: Windows, macOS (Intel and Apple Silicon) and Linux. `tools-env.sh` picks
   the platform layout itself (`unity-apk-decompile/INSTALLATION.md`, "Platform");
   `ensure_tools.py` downloads the matching pinned archive (`macos-arm64` on Apple Silicon).

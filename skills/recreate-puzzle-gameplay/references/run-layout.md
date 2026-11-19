@@ -108,7 +108,7 @@ Tools, before every phase that uses decompile tools (`decompile`, `level-catalog
   yourself, and never use "latest". `--check` detects without installing (for planning).
 - Then, in the shell that runs the decompile scripts, set `UNITY_DECOMPILE_TOOLS` to the
   `root` it printed. On Windows, the Bash scripts run in the Git Bash whose path `git-bash`
-  printed; on macOS and Linux they run in `bash` (never `source tools-env.sh` from zsh).
+  printed; on macOS and Linux they run in `bash` (through `in_env.sh`; never `source tools-env.sh` by hand).
   `tools-env.sh` puts `<root>/dotnet` first on PATH when it exists. If the `dotnet` path
   `ensure_tools.py` printed is elsewhere and not on that shell's PATH, prepend its directory
   in that shell only.

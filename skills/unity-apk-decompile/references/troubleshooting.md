@@ -25,7 +25,7 @@ Instruction Finder, Non-Returning Functions - Discovered, Stack.
 | `level-decoders` báo `needs Python >= 3.10` | Pin của UnityPy/pillow/fsspec cần 3.10+ | Chạy lại `ensure_tools.py` bằng `/opt/homebrew/bin/python3` hoặc Python từ python.org |
 | "cannot be opened because the developer cannot be verified" / `killed: 9` với tool tải bằng trình duyệt | Gatekeeper gắn `com.apple.quarantine` | Ưu tiên để `ensure_tools.py` tải (không gắn quarantine). Tool tự tải: `xattr -dr com.apple.quarantine <thư mục tool>` |
 | `JAVA_HOME` sai / `java` không chạy | JDK macOS có layout bundle | `tools-env.sh` đặt `JAVA_HOME=<root>/jdk-25/Contents/Home` |
-| `source tools-env.sh` lỗi trong zsh | Script dựa vào `BASH_SOURCE` | Chạy trong bash: `bash -c 'source .../tools-env.sh && ...'` |
+| `source tools-env.sh` lỗi trong zsh | Script dựa vào `BASH_SOURCE` | Đừng `source` nó; chạy lệnh qua `bash "<skill>/scripts/in_env.sh" "<workdir>" '<command>'` |
 
 ## Il2CppInspectorRedux / Cpp2IL
 
