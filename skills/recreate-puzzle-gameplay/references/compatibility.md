@@ -112,7 +112,10 @@ each skill states its fallback.
   macOS (3.2 is enough) and Linux, always through the wrapper, never `source`d by hand:
   `bash "<skill dir>/scripts/in_env.sh" "<workdir>" '<command>'` (on Windows invoke it with
   `"C:/Program Files/Git/bin/bash.exe"`). The wrapper loads `tools-env.sh` and
-  `<workdir>/paths.env`, so it works from any agent shell (zsh included).
+  `<workdir>/paths.env`, so it works from any agent shell (zsh included). The
+  `VAR=value bash ".../in_env.sh" ...` per-call prefix is bash/zsh syntax; from PowerShell use
+  `& "C:/Program Files/Git/bin/bash.exe" -c 'UNITY_DECOMPILE_TOOLS=... bash ".../in_env.sh" ...'`
+  (or set `$env:UNITY_DECOMPILE_TOOLS=...` before the call).
 - Decompile phase: Windows, macOS (Intel and Apple Silicon) and Linux. `tools-env.sh` picks
   the platform layout itself (`unity-apk-decompile/INSTALLATION.md`, "Platform");
   `ensure_tools.py` downloads the matching pinned archive (`macos-arm64` on Apple Silicon).

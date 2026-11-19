@@ -20,7 +20,7 @@ Instruction Finder, Non-Returning Functions - Discovered, Stack.
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
 | `_index.tsv` toàn `FAIL`, hoặc `ghidra_decompile.sh` báo `no macOS decompiler binary` | Zip phát hành của Ghidra chỉ có decompiler native `linux_x86_64`/`win_x86_64` | `ensure_tools.py` (entry `ghidra-natives`) build bằng Gradle wrapper của Ghidra; cần Xcode Command Line Tools (`xcode-select --install`). Tay: `JAVA_HOME=<root>/jdk-25/Contents/Home bash <ghidra>/support/gradle/gradlew -p <ghidra>/support/gradle buildNatives` (~40 s) |
-| `python3: Permission denied` hoặc `python3` không phải venv | Wrapper `scripts/bin/*` mất bit exec khi chép | `source tools-env.sh` tự `chmod +x`; nếu thư mục skill chỉ đọc: `chmod +x <skill>/scripts/bin/*` |
+| `python3: Permission denied` hoặc `python3` không phải venv | Wrapper `scripts/bin/*` mất bit exec khi chép | `in_env.sh` (nạp `tools-env.sh`) tự `chmod +x` mỗi lần chạy; nếu thư mục skill chỉ đọc: `chmod +x <skill>/scripts/bin/*` |
 | `Unknown option: -P` | `/usr/bin/python3` của Xcode là 3.9 | Dùng `-I` (skill đã đổi); script hỗ trợ 3.9+ |
 | `level-decoders` báo `needs Python >= 3.10` | Pin của UnityPy/pillow/fsspec cần 3.10+ | Chạy lại `ensure_tools.py` bằng `/opt/homebrew/bin/python3` hoặc Python từ python.org |
 | "cannot be opened because the developer cannot be verified" / `killed: 9` với tool tải bằng trình duyệt | Gatekeeper gắn `com.apple.quarantine` | Ưu tiên để `ensure_tools.py` tải (không gắn quarantine). Tool tự tải: `xattr -dr com.apple.quarantine <thư mục tool>` |

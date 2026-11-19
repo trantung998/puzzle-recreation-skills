@@ -8,6 +8,7 @@ writes <out-dir>/triage.json and prints a summary with the recommended route.
 Read-only on the input; never executes anything from the package.
 """
 import json
+import os
 import re
 import struct
 import sys
@@ -46,6 +47,18 @@ def paths_env_text(out: str, lib: Optional[str], meta: Optional[str]) -> str:
         if val is not None:
             lines.append("%s=%s" % (name, sh_quote(val.replace("\\", "/"))))
     return "\n".join(lines) + "\n"
+
+
+def write_paths_env(out_dir, lib: Optional[str], meta: Optional[str]) -> None:
+    # newline="\n": text mode on Windows would write CRLF and bash keeps the \r after the closing quote.
+    with open(os.path.join(str(out_dir), "paths.env"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(paths_env_text(str(out_dir), lib, meta))
+
+
+def next_hint(out) -> str:
+    here = Path(__file__).resolve().parent
+    return ('next         : bash "%s" "%s" \'<command>\'   # sets SK, W, SO, META per call'
+            % ((here / "in_env.sh").as_posix(), str(out).replace("\\", "/")))
 
 
 def main() -> int:
@@ -165,10 +178,10 @@ def main() -> int:
         r["notes"].append("PairIP present: static analysis is fine; repacked/resigned APK is expected to fail at launch")
 
     (out / "triage.json").write_text(json.dumps(r, indent=2))
-    (out / "paths.env").write_text(paths_env_text(
-        str(out),
+    write_paths_env(
+        out,
         r["chosen_lib"]["path"] if r.get("chosen_lib") else None,
-        r["metadata"]["path"] if r["metadata"] else None))
+        r["metadata"]["path"] if r["metadata"] else None)
     print(f"backend      : {r['backend']}")
     print(f"unity        : {r['unity_version']}")
     print(f"abis         : {', '.join(f'{a}({len(l)})' for a, l in r['abis'].items())}")
@@ -185,7 +198,7 @@ def main() -> int:
         print(f"note         : {n}")
     print(f"ROUTE        : {r['route']}")
     print(f"triage.json  : {out / 'triage.json'}")
-    print(f"next         : source {out / 'paths.env'}   # sets W, SO, META")
+    print(next_hint(out))
     return 0
 
 

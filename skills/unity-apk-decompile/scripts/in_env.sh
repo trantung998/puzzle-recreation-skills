@@ -16,5 +16,6 @@ META=
 if [ -f "$_WORKDIR/paths.env" ]; then
   source "$_WORKDIR/paths.env"
 fi
+W=${W%$'\r'}; SO=${SO%$'\r'}; META=${META%$'\r'}   # paths.env written with CRLF on Windows
 export W SO META SK
 exec bash -c "$_CMD"

@@ -66,6 +66,8 @@ Details: [level storage patterns](references/level-storage-patterns.md).
    default, or that it runs in these levels. A rule is `Proven` only for the exact
    branch you read; extrapolated past it, `Inferred`; with no branch read, `Unknown`.
 7. Mechanics present in metadata but unused by the N levels: one line each, out of scope.
+   List them as plain bullets, never as `## Name (`id`)` headings: every such heading
+   requires a pointer probe under `check_evidence.py --strict --mechanics`.
 
 ## Visual and audio inventory (phase `visuals`)
 

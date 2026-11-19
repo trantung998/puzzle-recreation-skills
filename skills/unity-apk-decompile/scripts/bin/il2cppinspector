@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-d="${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}/Il2CppInspectorRedux-2026.2"
+d="${UNITY_DECOMPILE_TOOLS:?run through bash \"<skill>/scripts/in_env.sh\" \"<workdir>\" \"<command>\"}/Il2CppInspectorRedux-2026.2"
 [ -f "$d/Il2CppInspector.exe" ] && exec "$d/Il2CppInspector.exe" "$@"
 exec "$d/Il2CppInspector" "$@"

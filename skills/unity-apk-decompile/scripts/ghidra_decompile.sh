@@ -70,6 +70,13 @@ if [[ ! -s "$OUT/_index.tsv" ]]; then
 fi
 # Java's println writes CRLF on Windows: strip a trailing \r before comparing column 3.
 TOTAL=$(awk 'END{print NR}' "$OUT/_index.tsv")
+# Java writes one row per target as it goes: a crash (OOM) or cancel mid-loop leaves a short, all-OK index.
+# Count targets with the script's own rule: CR-tolerant, skip blank/whitespace-only lines and lines starting with '#'.
+NTARGETS=$(awk '{sub(/\r$/,"")} $0 ~ /^[ \t]*$/ || /^#/ {next} {n++} END{print n+0}' "$WORK/targets.tsv")
+if [[ "$TOTAL" -ne "$NTARGETS" ]]; then
+  echo "index has $TOTAL row(s) but targets.tsv has $NTARGETS target(s): Ghidra stopped early (OOM/cancel?), see $LOG" >&2
+  exit 1
+fi
 BAD=$(awk -F'\t' '{sub(/\r$/,"")} $3 != "OK"{n++} END{print n+0}' "$OUT/_index.tsv")
 if [[ "$BAD" -ne 0 ]]; then
   echo "$BAD/$TOTAL targets not OK (FAIL/NO_FUNCTION): see $OUT/_index.tsv and $LOG" >&2

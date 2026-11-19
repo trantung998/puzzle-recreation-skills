@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-: "${UNITY_DECOMPILE_TOOLS:?source tools-env.sh first}"
+: "${UNITY_DECOMPILE_TOOLS:?run through bash \"<skill>/scripts/in_env.sh\" \"<workdir>\" \"<command>\"}"
 for _py in "$UNITY_DECOMPILE_TOOLS/decompile-python/Scripts/python.exe" "$UNITY_DECOMPILE_TOOLS/decompile-python/bin/python"; do
   [ -x "$_py" ] && exec "$_py" "$@"
 done

@@ -32,6 +32,22 @@ class PathsEnvTests(unittest.TestCase):
             self.source("H:\\UGame\\work", "H:\\UGame\\work\\unpacked\\libil2cpp.so", "H:\\m.dat"),
             "H:/UGame/work|H:/UGame/work/unpacked/libil2cpp.so|H:/m.dat")
 
+    def test_write_paths_env_has_no_cr(self):
+        with tempfile.TemporaryDirectory() as d:
+            unity_triage.write_paths_env(d, "H:\\a\\lib.so", "H:\\m.dat")
+            with open(os.path.join(d, "paths.env"), "rb") as fh:
+                data = fh.read()
+        self.assertNotIn(b"\r", data)
+        self.assertEqual(data, b"W='%s'\nSO='H:/a/lib.so'\nMETA='H:/m.dat'\n" % d.replace("\\", "/").encode())
+
+
+class HintTests(unittest.TestCase):
+    def test_next_hint_uses_wrapper(self):
+        hint = unity_triage.next_hint("/w/out")
+        self.assertIn("in_env.sh", hint)
+        self.assertIn(str(os.path.dirname(os.path.abspath(unity_triage.__file__))), hint)
+        self.assertNotIn("source ", hint)
+
 
 if __name__ == "__main__":
     unittest.main()

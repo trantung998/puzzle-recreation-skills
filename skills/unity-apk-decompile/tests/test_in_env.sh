@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WRAP="$HERE/../scripts/in_env.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-pass=0; fails=""; total=8
+pass=0; fails=""; total=9
 ok() { pass=$((pass+1)); }
 bad() { fails="$fails $1"; }
 
@@ -51,6 +51,12 @@ mkdir -p "$TMP/Win"
 printf "W='H:/UGame/work'\nSO='H:/UGame/work/unpacked/lib/libil2cpp.so'\n" > "$TMP/Win/paths.env"
 out=$(bash "$WRAP" "$TMP/Win" 'printf "%s|%s" "$W" "$SO"' 2>/dev/null)
 [ "$out" = "H:/UGame/work|H:/UGame/work/unpacked/lib/libil2cpp.so" ] && ok || bad case8
+
+# case9: a CRLF paths.env (Windows Python write) must not leave \r on W/SO/META
+mkdir -p "$TMP/Crlf"
+printf "W='H:/UGame/work'\r\nSO='H:/UGame/lib.so'\r\nMETA='H:/m.dat'\r\n" > "$TMP/Crlf/paths.env"
+out=$(bash "$WRAP" "$TMP/Crlf" 'printf "%s|%s|%s" "$W" "$SO" "$META"' 2>/dev/null)
+[ "$out" = "H:/UGame/work|H:/UGame/lib.so|H:/m.dat" ] && ok || bad case9
 
 if [ $pass -eq $total ]; then echo "PASS $total/$total"; exit 0; fi
 echo "FAIL$fails"; exit 1

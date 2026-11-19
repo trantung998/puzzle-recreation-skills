@@ -4,7 +4,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SCRIPT="$HERE/../scripts/ghidra_decompile.sh"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-pass=0; fails=""; total=6
+pass=0; fails=""; total=7
 ok() { pass=$((pass+1)); }
 bad() { fails="$fails $1"; }
 
@@ -24,6 +24,7 @@ case "$STUB_MODE" in
   ok)   printf 'A\t0x1\tOK\n' > "$out/_index.tsv" ;;
   fail) printf 'UIOKButton\t0x2\tFAIL\n' > "$out/_index.tsv" ;;
   crlf) printf 'A\t0x1\tOK\r\nB\t0x2\tOK\r\n' > "$out/_index.tsv" ;;
+  partial) printf 'A\t0x1\tOK\n' > "$out/_index.tsv" ;;
   none) exit 1 ;;
 esac
 exit 0
@@ -62,7 +63,12 @@ run none "$TMP/b.so"; rc=$?
 [ $rc -eq 1 ] && ok || bad case5
 
 # case6: CRLF rows (PrintWriter.println on Windows) still count as OK
+printf '# comment\r\nFoo\tbar\r\n\r\nBaz\tqux\r\n' > "$W/targets.tsv"   # 2 targets, CRLF, comment and blank skipped
 run crlf "$TMP/b.so"; rc=$?
 [ $rc -eq 0 ] && ok || bad case6
+
+# case7: index shorter than targets.tsv (crash/cancel mid-loop) must fail even though every row is OK
+run partial "$TMP/b.so"; rc=$?
+[ $rc -eq 1 ] && grep -q 'index has 1 row' "$TMP/run.out" && ok || bad case7
 
 if [ $pass -eq $total ]; then echo "PASS $pass/$total"; else echo "FAIL$fails"; exit 1; fi

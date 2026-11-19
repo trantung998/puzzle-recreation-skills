@@ -71,7 +71,7 @@ bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/uni
 **Mở rộng mục tiêu:** logic thường trải qua nhiều class (service → slot → model). Sau lần
 decompile đầu, đọc tên callee C# trong `.c`, thêm các callee quan trọng vào regex bước 4 và
 chạy lại. Project Ghidra ở `"$W/work/ghidra-project/il2cpp-<sha12>"` (khoá theo hash của `.so`, đổi `.so` thì import lại) được tái dùng nên mỗi lần chạy chỉ mất vài
-giây (`-readOnly`; `SAVE=1` để lưu tên vào project).
+giây (`-readOnly`; `SAVE=1` để lưu tên vào project). `il2cpp.rep` (và `il2cpp.gpr`) cũ trong `ghidra-project` từ các lần chạy trước không còn được dùng, có thể xoá.
 
 **Đổi offset thành tên field:** `param_1` là `this` của class chứa method.
 `bash "<this skill directory>/scripts/in_env.sh" "<workdir>" 'python3 -I "$SK/dump_class.py" "$W/il2cpp-out/dump.cs" --offset PassengerModel 0x18'` tự tìm qua cả
