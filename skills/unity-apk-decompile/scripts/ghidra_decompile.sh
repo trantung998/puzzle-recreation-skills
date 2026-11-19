@@ -68,8 +68,9 @@ if [[ ! -s "$OUT/_index.tsv" ]]; then
   echo "no _index.tsv produced: Ghidra did not run the script, see $LOG" >&2
   exit 1
 fi
+# Java's println writes CRLF on Windows: strip a trailing \r before comparing column 3.
 TOTAL=$(awk 'END{print NR}' "$OUT/_index.tsv")
-BAD=$(awk -F'\t' '$3 != "OK"{n++} END{print n+0}' "$OUT/_index.tsv")
+BAD=$(awk -F'\t' '{sub(/\r$/,"")} $3 != "OK"{n++} END{print n+0}' "$OUT/_index.tsv")
 if [[ "$BAD" -ne 0 ]]; then
   echo "$BAD/$TOTAL targets not OK (FAIL/NO_FUNCTION): see $OUT/_index.tsv and $LOG" >&2
   exit 1
